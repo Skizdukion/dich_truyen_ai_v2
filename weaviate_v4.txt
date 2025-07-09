@@ -1,0 +1,244 @@
+Google Text Embeddings with Weaviate
+Weaviate's integration with Google AI Studio and Google Vertex AI APIs allows you to access their models' capabilities directly from Weaviate.
+
+Configure a Weaviate vector index to use a Google embedding model, and Weaviate will generate embeddings for various operations using the specified model and your Google API key. This feature is called the vectorizer.
+
+At import time, Weaviate generates text object embeddings and saves them into the index. For vector and hybrid search operations, Weaviate converts text queries into embeddings.
+
+Your Weaviate instance must be configured with the Google vectorizer integration (text2vec-google) module.
+
+API credentials
+You must provide valid API credentials to Weaviate for the appropriate integration.
+
+AI Studio
+Go to Google AI Studio to sign up and obtain an API key.
+
+Vertex AI
+This is called an access token in Google Cloud.
+
+With Google Cloud CLI
+With google-auth
+Provide the API key
+Provide the API key to Weaviate at runtime, as shown in the examples below.
+
+Note the separate headers that are available for AI Studio and Vertex AI users.
+
+API key headers
+Python API v4
+JS/TS API v3
+Go
+import weaviate
+from weaviate.classes.init import Auth
+import os
+
+# Recommended: save sensitive data as environment variables
+vertex_key = os.getenv("VERTEX_APIKEY")
+studio_key = os.getenv("STUDIO_APIKEY")
+headers = {
+    "X-Goog-Vertex-Api-Key": vertex_key,
+    "X-Goog-Studio-Api-Key": studio_key,
+}
+
+client = weaviate.connect_to_weaviate_cloud(
+    cluster_url=weaviate_url,                       # `weaviate_url`: your Weaviate URL
+    auth_credentials=Auth.api_key(weaviate_key),      # `weaviate_key`: your Weaviate API key
+    headers=headers
+)
+
+# Work with Weaviate
+
+client.close()
+
+py docs  API docs
+Configure the vectorizer
+Configure a Weaviate index as follows to use a Google embedding model:
+
+Note that the required parameters differ between Vertex AI and AI Studio.
+
+You can specify one of the available models for Weaviate to use. The default model is used if no model is specified.
+
+Vertex AI
+Vertex AI users must provide the Google Cloud project ID in the vectorizer configuration.
+
+Python API v4
+JS/TS API v3
+Go
+from weaviate.classes.config import Configure
+
+client.collections.create(
+    "DemoCollection",
+    vectorizer_config=[
+        Configure.NamedVectors.text2vec_palm(
+            name="title_vector",
+            source_properties=["title"],
+            project_id="<google-cloud-project-id>",
+            # (Optional) To manually set the model ID
+            model_id="textembedding-gecko@latest"
+        )
+    ],
+    # Additional parameters not shown
+)
+
+py docs  API docs
+AI Studio
+Python API v4
+JS/TS API v3
+Go
+from weaviate.classes.config import Configure
+
+client.collections.create(
+    "DemoCollection",
+    vectorizer_config=[
+        Configure.NamedVectors.text2vec_palm(
+            name="title_vector",
+            source_properties=["title"],
+            project_id="<google-cloud-project-id>",
+            # (Optional) To manually set the model ID
+            model_id="text-embedding-004"
+        )
+    ],
+    # Additional parameters not shown
+)
+
+py docs  API docs
+Vectorization behavior
+Vectorizer parameters
+The following examples show how to configure Google-specific options.
+
+projectId (Only required if using Vertex AI): e.g. cloud-large-language-models
+apiEndpoint (Optional): e.g. us-central1-aiplatform.googleapis.com
+modelId (Optional): e.g. textembedding-gecko@001 (Vertex AI) or embedding-001 (AI Studio)
+Python API v4
+JS/TS API v3
+Go
+from weaviate.classes.config import Configure
+
+client.collections.create(
+    "DemoCollection",
+    vectorizer_config=[
+        Configure.NamedVectors.text2vec_palm(
+            name="title_vector",
+            source_properties=["title"],
+            project_id="<google-cloud-project-id>",  # Required for Vertex AI
+            # # Further options
+            # model_id="<google-model-id>",
+            # api_endpoint="<google-api-endpoint>",
+        )
+    ],
+    # Additional parameters not shown
+)
+
+py docs  API docs
+Data import
+After configuring the vectorizer, import data into Weaviate. Weaviate generates embeddings for text objects using the specified model.
+
+Python API v4
+JS/TS API v3
+Go
+source_objects = [
+    {"title": "The Shawshank Redemption", "description": "A wrongfully imprisoned man forms an inspiring friendship while finding hope and redemption in the darkest of places."},
+    {"title": "The Godfather", "description": "A powerful mafia family struggles to balance loyalty, power, and betrayal in this iconic crime saga."},
+    {"title": "The Dark Knight", "description": "Batman faces his greatest challenge as he battles the chaos unleashed by the Joker in Gotham City."},
+    {"title": "Jingle All the Way", "description": "A desperate father goes to hilarious lengths to secure the season's hottest toy for his son on Christmas Eve."},
+    {"title": "A Christmas Carol", "description": "A miserly old man is transformed after being visited by three ghosts on Christmas Eve in this timeless tale of redemption."}
+]
+
+collection = client.collections.get("DemoCollection")
+
+with collection.batch.fixed_size(batch_size=200) as batch:
+    for src_obj in source_objects:
+        # The model provider integration will automatically vectorize the object
+        batch.add_object(
+            properties={
+                "title": src_obj["title"],
+                "description": src_obj["description"],
+            },
+            # vector=vector  # Optionally provide a pre-obtained vector
+        )
+        if batch.number_errors > 10:
+            print("Batch import stopped due to excessive errors.")
+            break
+
+failed_objects = collection.batch.failed_objects
+if failed_objects:
+    print(f"Number of failed imports: {len(failed_objects)}")
+    print(f"First failed object: {failed_objects[0]}")
+
+
+py docs  API docs
+Re-use existing vectors
+If you already have a compatible model vector available, you can provide it directly to Weaviate. This can be useful if you have already generated embeddings using the same model and want to use them in Weaviate, such as when migrating data from another system.
+
+Searches
+Once the vectorizer is configured, Weaviate will perform vector and hybrid search operations using the specified Google model.
+
+Embedding integration at search illustration
+
+Vector (near text) search
+When you perform a vector search, Weaviate converts the text query into an embedding using the specified model and returns the most similar objects from the database.
+
+The query below returns the n most similar objects from the database, set by limit.
+
+Python API v4
+JS/TS API v3
+Go
+collection = client.collections.get("DemoCollection")
+
+response = collection.query.near_text(
+    query="A holiday film",  # The model provider integration will automatically vectorize the query
+    limit=2
+)
+
+for obj in response.objects:
+    print(obj.properties["title"])
+
+py docs  API docs
+Hybrid search
+What is a hybrid search?
+A hybrid search performs a vector search and a keyword (BM25) search, before combining the results to return the best matching objects from the database.
+
+When you perform a hybrid search, Weaviate converts the text query into an embedding using the specified model and returns the best scoring objects from the database.
+
+The query below returns the n best scoring objects from the database, set by limit.
+
+Python API v4
+JS/TS API v3
+Go
+collection = client.collections.get("DemoCollection")
+
+response = collection.query.hybrid(
+    query="A holiday film",  # The model provider integration will automatically vectorize the query
+    limit=2
+)
+
+for obj in response.objects:
+    print(obj.properties["title"])
+
+py docs  API docs
+References
+Available models
+Vertex AI:
+
+textembedding-gecko@001 (default)
+textembedding-gecko@002
+textembedding-gecko@003
+textembedding-gecko@latest
+textembedding-gecko-multilingual@001
+textembedding-gecko-multilingual@latest
+text-embedding-preview-0409
+text-multilingual-embedding-preview-0409
+AI Studio:
+
+embedding-001 (default)
+text-embedding-004
+Further resources
+Other integrations
+Google generative models + Weaviate.
+Code examples
+Once the integrations are configured at the collection, the data management and search operations in Weaviate work identically to any other collection. See the following model-agnostic examples:
+
+The How-to: Manage collections and How-to: Manage objects guides show how to perform data operations (i.e. create, read, update, delete collections and objects within them).
+The How-to: Query & Search guides show how to perform search operations (i.e. vector, keyword, hybrid) as well as retrieval augmented generation.
+External resources
+Google Vertex AI
+Google AI Studio

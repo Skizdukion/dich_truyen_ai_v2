@@ -1,166 +1,327 @@
-from typing import Any, Dict, List
-from langchain_core.messages import AnyMessage, AIMessage, HumanMessage
+import re
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
+from src.agent.state import ChunkState
 
 
-def get_research_topic(messages: List[AnyMessage]) -> str:
-    """
-    Get the research topic from the messages.
-    """
-    # check if request has a history and combine the messages into a single string
-    if len(messages) == 1:
-        research_topic = messages[-1].content
-    else:
-        research_topic = ""
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                research_topic += f"User: {message.content}\n"
-            elif isinstance(message, AIMessage):
-                research_topic += f"Assistant: {message.content}\n"
-    return research_topic
+@dataclass
+class ChunkingConfig:
+    """Configuration for Vietnamese text chunking"""
+    max_chunk_size: int = 6000  # Maximum characters per chunk
+    min_chunk_size: int = 2000  # Minimum characters per chunk
+    overlap_size: int = 0       # Overlap between chunks for context continuity
+    preserve_sentences: bool = True  # Try to keep sentences intact
+    preserve_paragraphs: bool = True  # Try to keep paragraphs intact
 
 
-def resolve_urls(urls_to_resolve: List[Any], id: int) -> Dict[str, str]:
-    """
-    Create a map of the vertex ai search urls (very long) to a short url with a unique id for each url.
-    Ensures each original URL gets a consistent shortened form while maintaining uniqueness.
-    """
-    prefix = f"https://vertexaisearch.cloud.google.com/id/"
-    urls = [site.web.uri for site in urls_to_resolve]
-
-    # Create a dictionary that maps each unique URL to its first occurrence index
-    resolved_map = {}
-    for idx, url in enumerate(urls):
-        if url not in resolved_map:
-            resolved_map[url] = f"{prefix}{id}-{idx}"
-
-    return resolved_map
-
-
-def insert_citation_markers(text, citations_list):
-    """
-    Inserts citation markers into a text string based on start and end indices.
-
-    Args:
-        text (str): The original text string.
-        citations_list (list): A list of dictionaries, where each dictionary
-                               contains 'start_index', 'end_index', and
-                               'segment_string' (the marker to insert).
-                               Indices are assumed to be for the original text.
-
-    Returns:
-        str: The text with citation markers inserted.
-    """
-    # Sort citations by end_index in descending order.
-    # If end_index is the same, secondary sort by start_index descending.
-    # This ensures that insertions at the end of the string don't affect
-    # the indices of earlier parts of the string that still need to be processed.
-    sorted_citations = sorted(
-        citations_list, key=lambda c: (c["end_index"], c["start_index"]), reverse=True
-    )
-
-    modified_text = text
-    for citation_info in sorted_citations:
-        # These indices refer to positions in the *original* text,
-        # but since we iterate from the end, they remain valid for insertion
-        # relative to the parts of the string already processed.
-        end_idx = citation_info["end_index"]
-        marker_to_insert = ""
-        for segment in citation_info["segments"]:
-            marker_to_insert += f" [{segment['label']}]({segment['short_url']})"
-        # Insert the citation marker at the original end_idx position
-        modified_text = (
-            modified_text[:end_idx] + marker_to_insert + modified_text[end_idx:]
+class VietnameseTextChunker:
+    """Vietnamese text chunking system with intelligent boundary detection"""
+    
+    def __init__(self, config: Optional[ChunkingConfig] = None):
+        self.config = config or ChunkingConfig()
+        
+        # Vietnamese sentence endings
+        self.sentence_endings = r'[.!?。！？]+'
+        
+        # Vietnamese paragraph breaks
+        self.paragraph_breaks = r'\n\s*\n'
+        
+        # Vietnamese punctuation that might indicate phrase boundaries
+        self.phrase_boundaries = r'[，,；;：:]'
+        
+        # Vietnamese word boundaries (basic)
+        self.word_boundaries = r'\s+'
+    
+    def chunk_text(self, text: str) -> List[ChunkState]:
+        """
+        Chunk Vietnamese text into manageable pieces while preserving semantic boundaries.
+        
+        Args:
+            text: Vietnamese text to chunk
+            
+        Returns:
+            List of ChunkState objects representing the chunks
+        """
+        if not text or not text.strip():
+            return []
+        
+        # Clean and normalize text
+        text = self._normalize_text(text)
+        
+        # Split into paragraphs first
+        paragraphs = self._split_paragraphs(text)
+        
+        chunks = []
+        chunk_index = 0
+        
+        for paragraph in paragraphs:
+            if len(paragraph.strip()) == 0:
+                continue
+                
+            # If paragraph is small enough, keep it as one chunk
+            if len(paragraph) <= self.config.max_chunk_size:
+                chunks.append(self._create_chunk_state(
+                    chunk_index, paragraph, len(paragraph)
+                ))
+                chunk_index += 1
+            else:
+                # Split paragraph into smaller chunks
+                paragraph_chunks = self._chunk_paragraph(paragraph, chunk_index)
+                chunks.extend(paragraph_chunks)
+                chunk_index += len(paragraph_chunks)
+        
+        # If no chunks were created (e.g., empty paragraphs), create one chunk with the original text
+        if not chunks and text.strip():
+            chunks.append(self._create_chunk_state(0, text, len(text)))
+        
+        return chunks
+    
+    def _normalize_text(self, text: str) -> str:
+        """Normalize Vietnamese text for consistent processing"""
+        # Remove excessive whitespace but preserve paragraph breaks
+        text = re.sub(r'[ \t]+', ' ', text)
+        
+        # Normalize line breaks but keep paragraph structure
+        text = re.sub(r'\n\s*\n', '\n\n', text)
+        
+        # Ensure proper spacing around punctuation, but don't break paragraph structure
+        text = re.sub(r'([.!?。！？，,；;：:])\s*', r'\1 ', text)
+        
+        return text.strip()
+    
+    def _split_paragraphs(self, text: str) -> List[str]:
+        """Split text into paragraphs"""
+        paragraphs = re.split(self.paragraph_breaks, text)
+        # Filter out empty paragraphs
+        return [p.strip() for p in paragraphs if p.strip()]
+    
+    def _chunk_paragraph(self, paragraph: str, start_index: int) -> List[ChunkState]:
+        """Split a paragraph into chunks while preserving sentence boundaries"""
+        chunks = []
+        current_index = start_index
+        remaining_text = paragraph
+        
+        while len(remaining_text) > 0:
+            # Determine chunk size for this iteration
+            chunk_size = min(self.config.max_chunk_size, len(remaining_text))
+            
+            if len(remaining_text) <= self.config.max_chunk_size:
+                # Last chunk - take all remaining text
+                chunk_text = remaining_text
+                remaining_text = ""
+            else:
+                # Find the best break point within the chunk size
+                chunk_text, remaining_text = self._find_optimal_break(
+                    remaining_text, chunk_size
+                )
+            
+            # Create chunk state
+            chunks.append(self._create_chunk_state(
+                current_index, chunk_text, len(chunk_text)
+            ))
+            current_index += 1
+        
+        return chunks
+    
+    def _find_optimal_break(self, text: str, max_size: int) -> Tuple[str, str]:
+        """
+        Find the optimal break point in text to create a chunk of maximum size.
+        Prioritizes sentence boundaries, then phrase boundaries, then word boundaries.
+        """
+        if len(text) <= max_size:
+            return text, ""
+        
+        # Try to break at sentence boundaries first
+        if self.config.preserve_sentences:
+            sentence_break = self._find_sentence_break(text, max_size)
+            if sentence_break > 0:
+                return text[:sentence_break], text[sentence_break:]
+        
+        # Try to break at phrase boundaries
+        phrase_break = self._find_phrase_break(text, max_size)
+        if phrase_break > 0:
+            return text[:phrase_break], text[phrase_break:]
+        
+        # Try to break at word boundaries
+        word_break = self._find_word_break(text, max_size)
+        if word_break > 0:
+            return text[:word_break], text[word_break:]
+        
+        # If no good break point found, break at max_size
+        return text[:max_size], text[max_size:]
+    
+    def _find_sentence_break(self, text: str, max_size: int) -> int:
+        """Find the last sentence boundary within max_size"""
+        # Look for sentence endings in the range [min_size, max_size]
+        min_size = max(self.config.min_chunk_size, max_size - 200)
+        
+        # Find all sentence endings in the text
+        sentence_matches = list(re.finditer(self.sentence_endings, text))
+        
+        # Find the last sentence ending within our range
+        for match in reversed(sentence_matches):
+            if min_size <= match.end() <= max_size:
+                return match.end()
+        
+        return 0
+    
+    def _find_phrase_break(self, text: str, max_size: int) -> int:
+        """Find the last phrase boundary within max_size"""
+        min_size = max(self.config.min_chunk_size, max_size - 100)
+        
+        # Find all phrase boundaries in the text
+        phrase_matches = list(re.finditer(self.phrase_boundaries, text))
+        
+        # Find the last phrase boundary within our range
+        for match in reversed(phrase_matches):
+            if min_size <= match.end() <= max_size:
+                return match.end()
+        
+        return 0
+    
+    def _find_word_break(self, text: str, max_size: int) -> int:
+        """Find the last word boundary within max_size"""
+        min_size = max(self.config.min_chunk_size, max_size - 50)
+        
+        # Find all word boundaries in the text
+        word_matches = list(re.finditer(self.word_boundaries, text))
+        
+        # Find the last word boundary within our range
+        for match in reversed(word_matches):
+            if min_size <= match.end() <= max_size:
+                return match.end()
+        
+        return 0
+    
+    def _create_chunk_state(self, index: int, text: str, size: int) -> ChunkState:
+        """Create a ChunkState object for a chunk"""
+        return ChunkState(
+            chunk_index=index,
+            chunk_text=text.strip(),
+            chunk_size=size,
+            is_processed=False,
+            translation_attempts=0,
+            max_attempts=3
         )
+    
+    def merge_small_chunks(self, chunks: List[ChunkState]) -> List[ChunkState]:
+        """
+        Merge chunks that are too small with adjacent chunks.
+        
+        Args:
+            chunks: List of chunks to merge
+            
+        Returns:
+            List of merged chunks
+        """
+        if not chunks:
+            return chunks
+        
+        merged_chunks = []
+        current_chunk = chunks[0]
+        
+        for next_chunk in chunks[1:]:
+            combined_size = len(current_chunk['chunk_text']) + len(next_chunk['chunk_text'])
+            
+            # If combining would create a reasonable chunk size, merge them
+            if combined_size <= self.config.max_chunk_size:
+                merged_text = current_chunk['chunk_text'] + ' ' + next_chunk['chunk_text']
+                current_chunk = ChunkState(
+                    chunk_index=current_chunk['chunk_index'],
+                    chunk_text=merged_text,
+                    chunk_size=len(merged_text),
+                    is_processed=False,
+                    translation_attempts=0,
+                    max_attempts=3
+                )
+            else:
+                # Keep current chunk and start a new one
+                merged_chunks.append(current_chunk)
+                current_chunk = next_chunk
+        
+        # Add the last chunk
+        merged_chunks.append(current_chunk)
+        
+        return merged_chunks
 
-    return modified_text
 
-
-def get_citations(response, resolved_urls_map):
+def chunk_vietnamese_text(text: str, config: Optional[ChunkingConfig] = None) -> List[ChunkState]:
     """
-    Extracts and formats citation information from a Gemini model's response.
-
-    This function processes the grounding metadata provided in the response to
-    construct a list of citation objects. Each citation object includes the
-    start and end indices of the text segment it refers to, and a string
-    containing formatted markdown links to the supporting web chunks.
-
+    Convenience function to chunk Vietnamese text.
+    
     Args:
-        response: The response object from the Gemini model, expected to have
-                  a structure including `candidates[0].grounding_metadata`.
-                  It also relies on a `resolved_map` being available in its
-                  scope to map chunk URIs to resolved URLs.
-
+        text: Vietnamese text to chunk
+        config: Optional chunking configuration
+        
     Returns:
-        list: A list of dictionaries, where each dictionary represents a citation
-              and has the following keys:
-              - "start_index" (int): The starting character index of the cited
-                                     segment in the original text. Defaults to 0
-                                     if not specified.
-              - "end_index" (int): The character index immediately after the
-                                   end of the cited segment (exclusive).
-              - "segments" (list[str]): A list of individual markdown-formatted
-                                        links for each grounding chunk.
-              - "segment_string" (str): A concatenated string of all markdown-
-                                        formatted links for the citation.
-              Returns an empty list if no valid candidates or grounding supports
-              are found, or if essential data is missing.
+        List of ChunkState objects
     """
-    citations = []
+    chunker = VietnameseTextChunker(config)
+    chunks = chunker.chunk_text(text)
+    return chunker.merge_small_chunks(chunks)
 
-    # Ensure response and necessary nested structures are present
-    if not response or not response.candidates:
-        return citations
 
-    candidate = response.candidates[0]
-    if (
-        not hasattr(candidate, "grounding_metadata")
-        or not candidate.grounding_metadata
-        or not hasattr(candidate.grounding_metadata, "grounding_supports")
-    ):
-        return citations
+def analyze_chunk_quality(chunks: List[ChunkState]) -> Dict[str, Any]:
+    """
+    Analyze the quality of chunking.
+    
+    Args:
+        chunks: List of chunks to analyze
+        
+    Returns:
+        Dictionary with analysis metrics
+    """
+    if not chunks:
+        return {
+            'total_chunks': 0,
+            'average_chunk_size': 0,
+            'min_chunk_size': 0,
+            'max_chunk_size': 0,
+            'size_distribution': {}
+        }
+    
+    sizes = [len(chunk['chunk_text']) for chunk in chunks]
+    
+    return {
+        'total_chunks': len(chunks),
+        'average_chunk_size': sum(sizes) / len(sizes),
+        'min_chunk_size': min(sizes),
+        'max_chunk_size': max(sizes),
+        'size_distribution': {
+            'small (<500)': len([s for s in sizes if s < 500]),
+            'medium (500-1000)': len([s for s in sizes if 500 <= s < 1000]),
+            'large (>1000)': len([s for s in sizes if s >= 1000])
+        }
+    }
 
-    for support in candidate.grounding_metadata.grounding_supports:
-        citation = {}
 
-        # Ensure segment information is present
-        if not hasattr(support, "segment") or support.segment is None:
-            continue  # Skip this support if segment info is missing
-
-        start_index = (
-            support.segment.start_index
-            if support.segment.start_index is not None
-            else 0
-        )
-
-        # Ensure end_index is present to form a valid segment
-        if support.segment.end_index is None:
-            continue  # Skip if end_index is missing, as it's crucial
-
-        # Add 1 to end_index to make it an exclusive end for slicing/range purposes
-        # (assuming the API provides an inclusive end_index)
-        citation["start_index"] = start_index
-        citation["end_index"] = support.segment.end_index
-
-        citation["segments"] = []
-        if (
-            hasattr(support, "grounding_chunk_indices")
-            and support.grounding_chunk_indices
-        ):
-            for ind in support.grounding_chunk_indices:
-                try:
-                    chunk = candidate.grounding_metadata.grounding_chunks[ind]
-                    resolved_url = resolved_urls_map.get(chunk.web.uri, None)
-                    citation["segments"].append(
-                        {
-                            "label": chunk.web.title.split(".")[:-1][0],
-                            "short_url": resolved_url,
-                            "value": chunk.web.uri,
-                        }
-                    )
-                except (IndexError, AttributeError, NameError):
-                    # Handle cases where chunk, web, uri, or resolved_map might be problematic
-                    # For simplicity, we'll just skip adding this particular segment link
-                    # In a production system, you might want to log this.
-                    pass
-        citations.append(citation)
-    return citations
+def validate_chunks(chunks: List[ChunkState]) -> List[str]:
+    """
+    Validate a list of chunks for consistency and quality.
+    
+    Args:
+        chunks: List of chunks to validate
+        
+    Returns:
+        List of validation error messages
+    """
+    errors = []
+    
+    if not chunks:
+        errors.append("No chunks provided")
+        return errors
+    
+    # Check for empty chunks
+    for i, chunk in enumerate(chunks):
+        if not chunk['chunk_text'].strip():
+            errors.append(f"Chunk {i} is empty")
+        
+        if chunk['chunk_index'] != i:
+            errors.append(f"Chunk {i} has incorrect index: {chunk['chunk_index']}")
+    
+    # Check for overlapping or missing text
+    all_text = ''.join(chunk['chunk_text'] for chunk in chunks)
+    if len(all_text.strip()) == 0:
+        errors.append("All chunks combined produce empty text")
+    
+    return errors

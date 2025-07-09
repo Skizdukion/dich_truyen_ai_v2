@@ -26,20 +26,20 @@
 
 ## Tasks
 
-- [ ] 1.0 Refactor State Management for Translation Workflow
-  - [ ] 1.1 Replace web research state with translation state in `state.py`
-  - [ ] 1.2 Create `TranslationState` TypedDict for chunk processing
-  - [ ] 1.3 Create `MemoryState` TypedDict for Weaviate operations
-  - [ ] 1.4 Create `ChunkState` TypedDict for individual chunk processing
-  - [ ] 1.5 Update `OverallState` to include translation-specific fields (chunks, translated_text, memory_context)
-  - [ ] 1.6 Add state validation for translation workflow
+- [x] 1.0 Refactor State Management for Translation Workflow
+  - [x] 1.1 Replace web research state with translation state in `state.py`
+  - [x] 1.2 Create `TranslationState` TypedDict for chunk processing
+  - [x] 1.3 Create `MemoryState` TypedDict for Weaviate operations
+  - [x] 1.4 Create `ChunkState` TypedDict for individual chunk processing
+  - [x] 1.5 Update `OverallState` to include translation-specific fields (chunks, translated_text, memory_context)
+  - [x] 1.6 Add state validation for translation workflow
 
-- [ ] 2.0 Implement Vietnamese Text Chunking System
+- [x] 2.0 Implement Vietnamese Text Chunking System
 
 - [ ] 3.0 Integrate Weaviate for Semantic Memory Storage
-  - [ ] 3.1 Create `weaviate_client.py` with connection management
-  - [ ] 3.2 Define `KnowledgeNode` schema with type, label, content, aliases fields
-  - [ ] 3.3 Create node type constants (GlossaryTerm, Character, Event)
+  - [x] 3.1 Create `weaviate_client.py` with connection management
+  - [x] 3.2 Define `KnowledgeNode` schema with type, label, content, aliases fields
+  - [x] 3.3 Create node type constants (GlossaryTerm, Character, Event)
   - [ ] 3.4 Add vector embedding generation using `text2vec-google` module
   - [ ] 3.5 Implement `search_node(query, type)` function for hybrid semantic search
   - [ ] 3.6 Implement `create_node(type, content, metadata)` function

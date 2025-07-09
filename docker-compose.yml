@@ -1,29 +1,50 @@
-volumes:
-  langgraph-data:
-    driver: local
+# volumes:
+  # langgraph-data:
+  #   driver: local
+  # weaviate-data:
+  #   driver: local
 services:
-  langgraph-redis:
-    image: docker.io/redis:6
-    container_name: langgraph-redis
-    healthcheck:
-      test: redis-cli ping
-      interval: 5s
-      timeout: 1s
-      retries: 5
-  langgraph-postgres:
-    image: docker.io/postgres:16
-    container_name: langgraph-postgres
+  # langgraph-redis:
+  #   image: docker.io/redis:6
+  #   container_name: langgraph-redis
+  #   healthcheck:
+  #     test: redis-cli ping
+  #     interval: 5s
+  #     timeout: 1s
+  #     retries: 5
+  # langgraph-postgres:
+  #   image: docker.io/postgres:16
+  #   container_name: langgraph-postgres
+  #   ports:
+  #     - "5433:5432"
+  #   environment:
+  #     POSTGRES_DB: postgres
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #   volumes:
+  #     - langgraph-data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: pg_isready -U postgres
+  #     start_period: 10s
+  #     timeout: 1s
+  #     retries: 5
+  #     interval: 5s
+  weaviate:
+    image: semitechnologies/weaviate:1.31.5
+    container_name: weaviate
     ports:
-      - "5433:5432"
+      - "8080:8080"
+      - "50051:50051"
     environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - langgraph-data:/var/lib/postgresql/data
+      - ENABLE_API_BASED_MODULES=TRUE
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - CLUSTER_HOSTNAME=weaviate
+    # volumes:
+    #   - weaviate-data:/var/lib/weaviate
     healthcheck:
-      test: pg_isready -U postgres
-      start_period: 10s
-      timeout: 1s
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
       retries: 5
-      interval: 5s
