@@ -8,35 +8,72 @@ from langchain_core.runnables import RunnableConfig
 class Configuration(BaseModel):
     """The configuration for the agent."""
 
+    # Translation-specific models
+    translation_model: str = Field(
+        default="gemini-2.0-flash",
+        description="The name of the language model to use for translation."
+    )
+
+    memory_search_model: str = Field(
+        default="gemini-2.0-flash",
+        description="The name of the language model to use for memory search queries."
+    )
+
+    memory_update_model: str = Field(
+        default="gemini-2.0-flash",
+        description="The name of the language model to use for memory update decisions."
+    )
+
+    context_summary_model: str = Field(
+        default="gemini-2.0-flash",
+        description="The name of the language model to use for context summarization."
+    )
+
+    # Translation workflow settings
+    default_chunk_size: int = Field(
+        default=1000,
+        description="Default size for text chunking in characters."
+    )
+
+    max_translation_attempts: int = Field(
+        default=3,
+        description="Maximum number of retry attempts for failed translations."
+    )
+
+    max_memory_context_items: int = Field(
+        default=5,
+        description="Maximum number of recent context items to maintain."
+    )
+
+    memory_search_limit: int = Field(
+        default=5,
+        description="Maximum number of memory nodes to retrieve per search."
+    )
+
+    # Legacy web research models (kept for backward compatibility)
     query_generator_model: str = Field(
         default="gemini-2.0-flash",
-        metadata={
-            "description": "The name of the language model to use for the agent's query generation."
-        },
+        description="The name of the language model to use for the agent's query generation."
     )
 
     reflection_model: str = Field(
         default="gemini-2.5-flash",
-        metadata={
-            "description": "The name of the language model to use for the agent's reflection."
-        },
+        description="The name of the language model to use for the agent's reflection."
     )
 
     answer_model: str = Field(
         default="gemini-2.5-pro",
-        metadata={
-            "description": "The name of the language model to use for the agent's answer."
-        },
+        description="The name of the language model to use for the agent's answer."
     )
 
     number_of_initial_queries: int = Field(
         default=3,
-        metadata={"description": "The number of initial search queries to generate."},
+        description="The number of initial search queries to generate."
     )
 
     max_research_loops: int = Field(
         default=2,
-        metadata={"description": "The maximum number of research loops to perform."},
+        description="The maximum number of research loops to perform."
     )
 
     @classmethod
