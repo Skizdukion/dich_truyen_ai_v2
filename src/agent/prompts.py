@@ -8,30 +8,6 @@ def get_current_date():
 
 # Translation-specific prompts for VietPhrase Reader Assistant
 
-translation_instructions = """Bạn là một chuyên gia dịch thuật tiếng Việt chuyên về việc chuyển đổi VietPhrase (định dạng song ngữ Trung-Việt) thành văn bản tiếng Việt trôi chảy và tự nhiên.
-
-Nhiệm vụ của bạn là dịch đoạn văn bản tiếng Việt được cung cấp thành tiếng Việt chất lượng cao, dễ đọc trong khi:
-1. Duy trì ý nghĩa và ngữ cảnh gốc
-2. Sử dụng cách diễn đạt và ngữ pháp tiếng Việt tự nhiên
-3. Tận dụng ngữ cảnh bộ nhớ được cung cấp (thuật ngữ, tên nhân vật, sự kiện)
-4. Đảm bảo tính nhất quán với các bản dịch trước đó
-5. Bảo toàn các sắc thái văn hóa hoặc ngữ cảnh
-
-Hướng dẫn:
-- Sử dụng tiếng Việt trang trọng cho nội dung học thuật/chuyên nghiệp
-- Sử dụng tiếng Việt thân mật cho tiểu thuyết/truyện
-- Duy trì thuật ngữ nhất quán dựa trên ngữ cảnh bộ nhớ
-- Đảm bảo ngữ pháp và dấu câu tiếng Việt chính xác
-- Tránh bản dịch theo nghĩa đen nghe ngượng ngịu
-- Bảo toàn giọng điệu và phong cách gốc khi có thể
-
-Ngữ cảnh bộ nhớ: {memory_context}
-Ngữ cảnh dịch thuật gần đây: {recent_context}
-Văn bản gốc: {original_text}
-
-Dịch văn bản trên thành tiếng Việt trôi chảy:"""
-
-
 memory_search_instructions = """Bạn là trợ lý AI phân tích văn bản tiếng Việt để xác định các yếu tố chính cần tìm kiếm trong cơ sở kiến thức.
 
 Nhiệm vụ của bạn là trích xuất các thuật ngữ có thể tìm kiếm từ đoạn văn bản được cung cấp có thể hưởng lợi từ ngữ cảnh bộ nhớ, bao gồm:
@@ -103,5 +79,89 @@ Ngữ cảnh dịch thuật gần đây: {recent_context}
 Bản dịch đoạn hiện tại: {current_translation}
 
 Tạo ra bản tóm tắt ngắn gọn cho ngữ cảnh tương lai:"""
+
+
+# Enhanced translation prompts for small chunks and feedback incorporation
+
+small_chunk_translation_instructions = """Bạn là chuyên gia dịch thuật tiếng Việt chuyên nghiệp, chuyên về dịch các đoạn văn bản nhỏ với độ chính xác cao.
+
+Nhiệm vụ của bạn là dịch đoạn văn bản tiếng Việt được cung cấp thành tiếng Việt chất lượng cao, dễ đọc trong khi:
+1. Duy trì ý nghĩa và ngữ cảnh gốc
+2. Sử dụng cách diễn đạt và ngữ pháp tiếng Việt tự nhiên
+3. Tận dụng ngữ cảnh bộ nhớ được cung cấp (thuật ngữ, tên nhân vật, sự kiện)
+4. Đảm bảo tính nhất quán với các bản dịch trước đó
+5. Bảo toàn các sắc thái văn hóa hoặc ngữ cảnh
+6. Xem xét phản hồi từ các lần dịch trước đó
+
+Thông tin đoạn văn:
+- Vị trí trong đoạn lớn: {position}/{total_chunks}
+- Phản hồi trước đó: {feedback}
+
+Hướng dẫn:
+- Sử dụng tiếng Việt trang trọng cho nội dung học thuật/chuyên nghiệp
+- Sử dụng tiếng Việt thân mật cho tiểu thuyết/truyện
+- Duy trì thuật ngữ nhất quán dựa trên ngữ cảnh bộ nhớ
+- Đảm bảo ngữ pháp và dấu câu tiếng Việt chính xác
+- Tránh bản dịch theo nghĩa đen nghe ngượng ngịu
+- Bảo toàn giọng điệu và phong cách gốc khi có thể
+- Cải thiện dựa trên phản hồi trước đó nếu có
+
+Ngữ cảnh bộ nhớ: {memory_context}
+Ngữ cảnh dịch thuật gần đây: {recent_context}
+Văn bản gốc: {original_text}
+
+Dịch văn bản trên thành tiếng Việt trôi chảy:"""
+
+
+feedback_incorporation_instructions = """Bạn là chuyên gia dịch thuật tiếng Việt chuyên nghiệp, chuyên về cải thiện bản dịch dựa trên phản hồi.
+
+Nhiệm vụ của bạn là tạo ra một bản dịch cải thiện dựa trên phản hồi từ đánh giá chất lượng trước đó.
+
+Hướng dẫn:
+1. Phân tích phản hồi một cách cẩn thận
+2. Xác định các vấn đề cụ thể cần cải thiện
+3. Giữ lại những phần đã tốt của bản dịch trước
+4. Cải thiện các phần có vấn đề theo phản hồi
+5. Đảm bảo tính nhất quán với ngữ cảnh và phong cách
+6. Duy trì ý nghĩa gốc trong khi cải thiện chất lượng
+
+Ngữ cảnh bộ nhớ: {memory_context}
+Ngữ cảnh dịch thuật gần đây: {recent_context}
+Văn bản gốc: {original_text}
+Bản dịch trước đó: {previous_translation}
+Phản hồi cần cải thiện: {feedback}
+
+Tạo ra bản dịch cải thiện:"""
+
+
+quality_assessment_instructions = """Bạn là chuyên gia đánh giá chất lượng dịch thuật tiếng Việt.
+
+Nhiệm vụ của bạn là đánh giá chất lượng bản dịch dựa trên các tiêu chí sau:
+1. Độ chính xác (accuracy_score): Bản dịch có truyền tải đúng ý nghĩa gốc không?
+2. Độ trôi chảy (fluency_score): Bản dịch có tự nhiên và dễ đọc không?
+3. Phong cách (style_score): Bản dịch có phù hợp với phong cách gốc không?
+4. Tính nhất quán (consistency_score): Bản dịch có nhất quán với ngữ cảnh không?
+
+Hướng dẫn đánh giá:
+- Cho điểm từ 0.0 đến 1.0 cho mỗi tiêu chí
+- Điểm tổng thể là trung bình của các tiêu chí
+- Xác định các vấn đề cụ thể và đưa ra gợi ý cải thiện
+- Đánh giá độ tin cậy của đánh giá (confidence)
+
+Văn bản gốc: {original_text}
+Bản dịch: {translated_text}
+Ngữ cảnh bộ nhớ: {memory_context}
+
+Trả về đánh giá dưới dạng JSON:
+{{
+    "accuracy_score": 0.85,
+    "fluency_score": 0.90,
+    "style_score": 0.80,
+    "consistency_score": 0.85,
+    "overall_score": 0.85,
+    "confidence": 0.90,
+    "issues": ["Vấn đề 1", "Vấn đề 2"],
+    "suggestions": ["Gợi ý cải thiện 1", "Gợi ý cải thiện 2"]
+}}"""
 
 

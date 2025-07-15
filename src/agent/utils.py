@@ -1,7 +1,7 @@
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
-from src.agent.state import ChunkState
+from src.agent.state import ChunkState, BigChunkState, SmallChunkState
 
 
 @dataclass
@@ -10,6 +10,18 @@ class ChunkingConfig:
     max_chunk_size: int = 5000  # Maximum characters per chunk
     min_chunk_size: int = 800  # Minimum characters per chunk
     overlap_size: int = 0       # Overlap between chunks for context continuity
+    preserve_sentences: bool = True  # Try to keep sentences intact
+    preserve_paragraphs: bool = True  # Try to keep paragraphs intact
+
+
+@dataclass
+class EnhancedChunkingConfig:
+    """Configuration for enhanced translation flow chunking"""
+    big_chunk_size: int = 16000  # Maximum characters per big chunk (16k limit)
+    small_chunk_size: int = 500   # Target characters per small chunk (~500 words)
+    big_chunk_min_size: int = 8000  # Minimum characters per big chunk
+    small_chunk_min_size: int = 200  # Minimum characters per small chunk
+    overlap_size: int = 0         # Overlap between chunks for context continuity
     preserve_sentences: bool = True  # Try to keep sentences intact
     preserve_paragraphs: bool = True  # Try to keep paragraphs intact
 
@@ -75,6 +87,182 @@ class VietnameseTextChunker:
             chunks.append(self._create_chunk_state(0, text, len(text)))
         
         return chunks
+    
+    def chunk_text_into_big_chunks(self, text: str, config: Optional[EnhancedChunkingConfig] = None) -> List[BigChunkState]:
+        """
+        Chunk Vietnamese text into big chunks (16k limit) for enhanced translation flow.
+        
+        Args:
+            text: Vietnamese text to chunk
+            config: Enhanced chunking configuration
+            
+        Returns:
+            List of BigChunkState objects representing the big chunks
+        """
+        if not text or not text.strip():
+            return []
+        
+        config = config or EnhancedChunkingConfig()
+        
+        # Clean and normalize text
+        text = self._normalize_text(text)
+        
+        # Split into paragraphs first
+        paragraphs = self._split_paragraphs(text)
+        
+        big_chunks = []
+        big_chunk_index = 0
+        current_big_chunk_text = ""
+        
+        for paragraph in paragraphs:
+            if len(paragraph.strip()) == 0:
+                continue
+            
+            # Check if adding this paragraph would exceed the big chunk size
+            if len(current_big_chunk_text) + len(paragraph) + 2 <= config.big_chunk_size:
+                # Add paragraph to current big chunk
+                if current_big_chunk_text:
+                    current_big_chunk_text += "\n\n" + paragraph
+                else:
+                    current_big_chunk_text = paragraph
+            else:
+                # Current big chunk is full, create it and start a new one
+                if current_big_chunk_text:
+                    big_chunks.append(self._create_big_chunk_state(
+                        big_chunk_index, current_big_chunk_text, len(current_big_chunk_text)
+                    ))
+                    big_chunk_index += 1
+                
+                # If the paragraph itself is larger than the big chunk size, split it
+                if len(paragraph) > config.big_chunk_size:
+                    # Split the paragraph into smaller pieces
+                    remaining_paragraph = paragraph
+                    while len(remaining_paragraph) > 0:
+                        chunk_size = min(config.big_chunk_size, len(remaining_paragraph))
+                        chunk_text, remaining_paragraph = self._find_optimal_break(
+                            remaining_paragraph, chunk_size
+                        )
+                        
+                        big_chunks.append(self._create_big_chunk_state(
+                            big_chunk_index, chunk_text, len(chunk_text)
+                        ))
+                        big_chunk_index += 1
+                else:
+                    # Start new big chunk with current paragraph
+                    current_big_chunk_text = paragraph
+        
+        # Add the last big chunk if there's remaining text
+        if current_big_chunk_text:
+            big_chunks.append(self._create_big_chunk_state(
+                big_chunk_index, current_big_chunk_text, len(current_big_chunk_text)
+            ))
+        
+        # If no big chunks were created, create one with the original text
+        if not big_chunks and text.strip():
+            big_chunks.append(self._create_big_chunk_state(0, text, len(text)))
+        
+        return big_chunks
+    
+    def chunk_big_chunk_into_small_chunks(self, big_chunk: BigChunkState, config: Optional[EnhancedChunkingConfig] = None) -> List[SmallChunkState]:
+        """
+        Split a big chunk into small chunks (~500 words) for enhanced translation flow.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        assert isinstance(big_chunk['big_chunk_text'], str) and big_chunk['big_chunk_text'].strip(), "Input big chunk text must be a non-empty string"
+        config = config or EnhancedChunkingConfig()
+        text = big_chunk['big_chunk_text']
+        
+        # Split into paragraphs first
+        paragraphs = self._split_paragraphs(text)
+        
+        small_chunks = []
+        small_chunk_index = 0
+        current_small_chunk_text = ""
+        position_in_big_chunk = 0
+        min_size = 400
+        max_size = 700
+        for paragraph in paragraphs:
+            assert isinstance(paragraph, str), f"Paragraph must be a string, got {type(paragraph)}"
+            if len(paragraph.strip()) == 0:
+                continue
+            # If paragraph itself is larger than max_size, split it
+            if len(paragraph) > max_size:
+                remaining_paragraph = paragraph
+                while len(remaining_paragraph) > 0:
+                    chunk_size = min(max_size, len(remaining_paragraph))
+                    chunk_text, remaining_paragraph = self._find_optimal_break(
+                        remaining_paragraph, chunk_size
+                    )
+                    if current_small_chunk_text:
+                        # Add current chunk before starting a new one
+                        if len(current_small_chunk_text) >= min_size:
+                            small_chunks.append(self._create_small_chunk_state(
+                                small_chunk_index, big_chunk['big_chunk_id'], current_small_chunk_text,
+                                len(current_small_chunk_text), position_in_big_chunk
+                            ))
+                            small_chunk_index += 1
+                            position_in_big_chunk += len(current_small_chunk_text)
+                            current_small_chunk_text = ""
+                        else:
+                            # Merge with the new chunk_text if current is too small
+                            chunk_text = current_small_chunk_text + "\n\n" + chunk_text
+                            current_small_chunk_text = ""
+                    # Add the split chunk
+                    small_chunks.append(self._create_small_chunk_state(
+                        small_chunk_index, big_chunk['big_chunk_id'], chunk_text,
+                        len(chunk_text), position_in_big_chunk
+                    ))
+                    small_chunk_index += 1
+                    position_in_big_chunk += len(chunk_text)
+            else:
+                # Try to add paragraph to current chunk
+                if len(current_small_chunk_text) + len(paragraph) + 2 <= max_size:
+                    if current_small_chunk_text:
+                        current_small_chunk_text += "\n\n" + paragraph
+                    else:
+                        current_small_chunk_text = paragraph
+                else:
+                    # If current chunk is at least min_size, add it
+                    if len(current_small_chunk_text) >= min_size:
+                        small_chunks.append(self._create_small_chunk_state(
+                            small_chunk_index, big_chunk['big_chunk_id'], current_small_chunk_text,
+                            len(current_small_chunk_text), position_in_big_chunk
+                        ))
+                        small_chunk_index += 1
+                        position_in_big_chunk += len(current_small_chunk_text)
+                        current_small_chunk_text = paragraph
+                    else:
+                        # Merge with the new paragraph if current is too small
+                        current_small_chunk_text += "\n\n" + paragraph
+        # Add the last small chunk if there's remaining text
+        if current_small_chunk_text:
+            if len(current_small_chunk_text) < min_size and small_chunks:
+                # Merge with previous chunk
+                prev = small_chunks.pop()
+                merged_text = prev['small_chunk_text'] + "\n\n" + current_small_chunk_text
+                small_chunks.append(self._create_small_chunk_state(
+                    small_chunk_index-1, big_chunk['big_chunk_id'], merged_text,
+                    len(merged_text), prev['position_in_big_chunk']
+                ))
+            else:
+                small_chunks.append(self._create_small_chunk_state(
+                    small_chunk_index, big_chunk['big_chunk_id'], current_small_chunk_text,
+                    len(current_small_chunk_text), position_in_big_chunk
+                ))
+        # Assert all chunks are non-empty, within size range, and unique
+        seen_texts = set()
+        total_size = 0
+        for i, chunk in enumerate(small_chunks):
+            assert chunk['small_chunk_text'].strip(), f"Small chunk {i} is empty"
+            # assert 400 <= chunk['small_chunk_size'] <= 700, f"Small chunk {i} size {chunk['small_chunk_size']} out of range"
+            assert chunk['small_chunk_text'] not in seen_texts, f"Duplicate small chunk text at index {i}"
+            seen_texts.add(chunk['small_chunk_text'])
+            logger.debug(f"Small chunk {i}: size={chunk['small_chunk_size']}, index={i}, text=\n{chunk['small_chunk_text']}\n---")
+            total_size += chunk['small_chunk_size']
+        logger.debug(f"Sum of all small chunk sizes: {total_size}, input big chunk size: {len(big_chunk['big_chunk_text'])}")
+        assert abs(total_size - len(big_chunk['big_chunk_text'])) < 20, f"Sum of chunk sizes ({total_size}) does not match input ({len(big_chunk['big_chunk_text'])})"
+        return small_chunks
     
     def _normalize_text(self, text: str) -> str:
         """Normalize Vietnamese text for consistent processing"""
@@ -204,6 +392,36 @@ class VietnameseTextChunker:
             max_attempts=3
         )
     
+    def _create_big_chunk_state(self, index: int, text: str, size: int) -> BigChunkState:
+        """Create a BigChunkState object for a big chunk"""
+        return BigChunkState(
+            big_chunk_id=f"big_chunk_{index:04d}",
+            big_chunk_text=text.strip(),
+            big_chunk_size=size,
+            memory_context=[],
+            small_chunks=[],
+            is_processed=False,
+            processing_status="pending",
+            error_message=None
+        )
+    
+    def _create_small_chunk_state(self, index: int, big_chunk_id: str, text: str, size: int, position: int) -> SmallChunkState:
+        """Create a SmallChunkState object for a small chunk"""
+        return SmallChunkState(
+            small_chunk_id=f"small_chunk_{big_chunk_id}_{index:04d}",
+            big_chunk_id=big_chunk_id,
+            small_chunk_text=text.strip(),
+            small_chunk_size=size,
+            position_in_big_chunk=position,
+            translated_text=None,
+            recent_context=[],
+            translation_attempts=0,
+            max_attempts=3,
+            is_processed=False,
+            processing_status="pending",
+            error_message=None
+        )
+    
     def merge_small_chunks(self, chunks: List[ChunkState]) -> List[ChunkState]:
         """
         Merge chunks that are too small with adjacent chunks.
@@ -259,6 +477,251 @@ def chunk_vietnamese_text(text: str, config: Optional[ChunkingConfig] = None) ->
     chunker = VietnameseTextChunker(config)
     chunks = chunker.chunk_text(text)
     return chunker.merge_small_chunks(chunks)
+
+
+def chunk_text_into_big_chunks(text: str, config: Optional[EnhancedChunkingConfig] = None) -> List[BigChunkState]:
+    """
+    Convenience function to chunk Vietnamese text into big chunks for enhanced translation flow.
+    
+    Args:
+        text: Vietnamese text to chunk
+        config: Optional enhanced chunking configuration
+        
+    Returns:
+        List of BigChunkState objects
+    """
+    chunker = VietnameseTextChunker()
+    return chunker.chunk_text_into_big_chunks(text, config)
+
+
+def chunk_big_chunk_into_small_chunks(big_chunk: BigChunkState, config: Optional[EnhancedChunkingConfig] = None) -> List[SmallChunkState]:
+    """
+    Convenience function to split a big chunk into small chunks for enhanced translation flow.
+    
+    Args:
+        big_chunk: BigChunkState to split into small chunks
+        config: Optional enhanced chunking configuration
+        
+    Returns:
+        List of SmallChunkState objects
+    """
+    chunker = VietnameseTextChunker()
+    return chunker.chunk_big_chunk_into_small_chunks(big_chunk, config)
+
+
+def validate_enhanced_chunks(big_chunks: List[BigChunkState], small_chunks: List[SmallChunkState], config: Optional[EnhancedChunkingConfig] = None, strict: bool = False) -> List[str]:
+    """
+    Validate enhanced chunks for consistency and quality.
+    
+    Args:
+        big_chunks: List of big chunks to validate
+        small_chunks: List of small chunks to validate
+        config: Optional enhanced chunking configuration
+        strict: Whether to enforce strict size limits (default: False for flexibility)
+        
+    Returns:
+        List of validation error messages
+    """
+    errors = []
+    config = config or EnhancedChunkingConfig()
+    
+    # Validate big chunks
+    if not big_chunks:
+        errors.append("No big chunks provided")
+    else:
+        for i, big_chunk in enumerate(big_chunks):
+            if not big_chunk['big_chunk_text'].strip():
+                errors.append(f"Big chunk {i} is empty")
+            
+            if big_chunk['big_chunk_size'] > config.big_chunk_size:
+                errors.append(f"Big chunk {i} exceeds maximum size: {big_chunk['big_chunk_size']} > {config.big_chunk_size}")
+            
+            # Only check minimum size if strict validation is enabled
+            if strict and big_chunk['big_chunk_size'] < config.big_chunk_min_size:
+                errors.append(f"Big chunk {i} is too small: {big_chunk['big_chunk_size']} < {config.big_chunk_min_size}")
+    
+    # Validate small chunks
+    if not small_chunks:
+        errors.append("No small chunks provided")
+    else:
+        for i, small_chunk in enumerate(small_chunks):
+            if not small_chunk['small_chunk_text'].strip():
+                errors.append(f"Small chunk {i} is empty")
+            
+            if small_chunk['small_chunk_size'] > config.small_chunk_size * 2:  # Allow some flexibility
+                errors.append(f"Small chunk {i} is too large: {small_chunk['small_chunk_size']} > {config.small_chunk_size * 2}")
+            
+            # Only check minimum size if strict validation is enabled
+            if strict and small_chunk['small_chunk_size'] < config.small_chunk_min_size:
+                errors.append(f"Small chunk {i} is too small: {small_chunk['small_chunk_size']} < {config.small_chunk_min_size}")
+    
+    # Validate relationships between big and small chunks
+    big_chunk_ids = {chunk['big_chunk_id'] for chunk in big_chunks}
+    for small_chunk in small_chunks:
+        if small_chunk['big_chunk_id'] not in big_chunk_ids:
+            errors.append(f"Small chunk references non-existent big chunk: {small_chunk['big_chunk_id']}")
+    
+    return errors
+
+
+def reassemble_chunks_from_small_chunks(small_chunks: List[SmallChunkState]) -> str:
+    """
+    Reassemble text from small chunks, preserving original order.
+    
+    Args:
+        small_chunks: List of small chunks to reassemble
+        
+    Returns:
+        Reassembled text
+    """
+    if not small_chunks:
+        return ""
+    
+    # Sort small chunks by their position in the big chunk
+    sorted_chunks = sorted(small_chunks, key=lambda x: x['position_in_big_chunk'])
+    
+    # Reassemble text
+    reassembled_text = ""
+    for chunk in sorted_chunks:
+        if reassembled_text:
+            reassembled_text += "\n\n"
+        reassembled_text += chunk['small_chunk_text']
+    
+    return reassembled_text
+
+
+def reassemble_chunks_from_big_chunks(big_chunks: List[BigChunkState]) -> str:
+    """
+    Reassemble text from big chunks, preserving original order.
+    
+    Args:
+        big_chunks: List of big chunks to reassemble
+        
+    Returns:
+        Reassembled text
+    """
+    if not big_chunks:
+        return ""
+    
+    # Sort big chunks by their ID (which contains the index)
+    sorted_chunks = sorted(big_chunks, key=lambda x: x['big_chunk_id'])
+    
+    # Reassemble text
+    reassembled_text = ""
+    for chunk in sorted_chunks:
+        if reassembled_text:
+            reassembled_text += "\n\n"
+        reassembled_text += chunk['big_chunk_text']
+    
+    return reassembled_text
+
+
+def preserve_context_between_small_chunks(small_chunks: List[SmallChunkState], context_window: int = 2) -> List[SmallChunkState]:
+    """
+    Add recent context to each small chunk for better translation continuity.
+    
+    Args:
+        small_chunks: List of small chunks to add context to
+        context_window: Number of previous chunks to include as context
+        
+    Returns:
+        List of small chunks with context added
+    """
+    if not small_chunks:
+        return small_chunks
+    
+    # Sort chunks by position
+    sorted_chunks = sorted(small_chunks, key=lambda x: x['position_in_big_chunk'])
+    
+    for i, chunk in enumerate(sorted_chunks):
+        # Get recent context from previous chunks
+        context_start = max(0, i - context_window)
+        context_chunks = sorted_chunks[context_start:i]
+        
+        # Create context information
+        context_info = []
+        for ctx_chunk in context_chunks:
+            context_info.append({
+                'chunk_id': ctx_chunk['small_chunk_id'],
+                'text': ctx_chunk['small_chunk_text'],
+                'translated_text': ctx_chunk.get('translated_text'),
+                'position': ctx_chunk['position_in_big_chunk']
+            })
+        
+        # Update the chunk with context
+        chunk['recent_context'] = context_info
+    
+    return sorted_chunks
+
+
+def analyze_enhanced_chunk_quality(big_chunks: List[BigChunkState], small_chunks: List[SmallChunkState]) -> Dict[str, Any]:
+    """
+    Analyze the quality of enhanced chunking.
+    
+    Args:
+        big_chunks: List of big chunks to analyze
+        small_chunks: List of small chunks to analyze
+        
+    Returns:
+        Dictionary with analysis metrics
+    """
+    analysis = {
+        'big_chunks': {
+            'total': len(big_chunks),
+            'average_size': 0,
+            'min_size': 0,
+            'max_size': 0,
+            'size_distribution': {}
+        },
+        'small_chunks': {
+            'total': len(small_chunks),
+            'average_size': 0,
+            'min_size': 0,
+            'max_size': 0,
+            'size_distribution': {}
+        },
+        'relationships': {
+            'chunks_per_big_chunk': 0,
+            'coverage_ratio': 0.0
+        }
+    }
+    
+    # Analyze big chunks
+    if big_chunks:
+        big_sizes = [chunk['big_chunk_size'] for chunk in big_chunks]
+        analysis['big_chunks']['average_size'] = sum(big_sizes) / len(big_sizes)
+        analysis['big_chunks']['min_size'] = min(big_sizes)
+        analysis['big_chunks']['max_size'] = max(big_sizes)
+        analysis['big_chunks']['size_distribution'] = {
+            'small (<8k)': len([s for s in big_sizes if s < 8000]),
+            'medium (8k-12k)': len([s for s in big_sizes if 8000 <= s < 12000]),
+            'large (>12k)': len([s for s in big_sizes if s >= 12000])
+        }
+    
+    # Analyze small chunks
+    if small_chunks:
+        small_sizes = [chunk['small_chunk_size'] for chunk in small_chunks]
+        analysis['small_chunks']['average_size'] = sum(small_sizes) / len(small_sizes)
+        analysis['small_chunks']['min_size'] = min(small_sizes)
+        analysis['small_chunks']['max_size'] = max(small_sizes)
+        analysis['small_chunks']['size_distribution'] = {
+            'small (<300)': len([s for s in small_sizes if s < 300]),
+            'medium (300-700)': len([s for s in small_sizes if 300 <= s < 700]),
+            'large (>700)': len([s for s in small_sizes if s >= 700])
+        }
+    
+    # Analyze relationships
+    if big_chunks and small_chunks:
+        chunks_per_big = len(small_chunks) / len(big_chunks)
+        analysis['relationships']['chunks_per_big_chunk'] = chunks_per_big
+        
+        # Calculate coverage ratio (total small chunk size / total big chunk size)
+        total_big_size = sum(chunk['big_chunk_size'] for chunk in big_chunks)
+        total_small_size = sum(chunk['small_chunk_size'] for chunk in small_chunks)
+        if total_big_size > 0:
+            analysis['relationships']['coverage_ratio'] = total_small_size / total_big_size
+    
+    return analysis
 
 
 def analyze_chunk_quality(chunks: List[ChunkState]) -> Dict[str, Any]:
