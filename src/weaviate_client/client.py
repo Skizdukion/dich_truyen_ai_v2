@@ -1,11 +1,14 @@
 import os
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from uuid import UUID
 import weaviate
 from weaviate.classes.init import Auth
 from weaviate.classes.query import Filter
 from weaviate.collections import Collection
-from .schema import KnowledgeNode, create_or_get_collection
+from .schema import (
+    KnowledgeNode,
+    create_or_get_collection,
+)
 
 
 class WeaviateWrapperClient:
@@ -52,6 +55,12 @@ class WeaviateWrapperClient:
         client = self.connect()
         return create_or_get_collection(client, self.collection_name or "KnowledgeNode")
 
+    def delete_all_nodes(self):
+        """Delete all nodes from the collection."""
+        print("Deleting all nodes...")
+        client = self.connect()
+        client.collections.delete(self.collection_name or "KnowledgeNode")
+
     def insert_knowledge_node(self, node: KnowledgeNode) -> UUID:
         """Insert a single knowledge node and return the generated UUID."""
         collection = self.get_collection()
@@ -66,7 +75,11 @@ class WeaviateWrapperClient:
 
         try:
             obj = collection.query.fetch_object_by_id(node_id)
-            return dict(obj.properties) if obj else None  # type: ignore
+            if obj:
+                node_data = dict(obj.properties)  # type: ignore
+                node_data['uuid'] = str(obj.uuid)  # Add UUID for consistency
+                return node_data
+            return None
         except:
             return None
 
@@ -90,7 +103,14 @@ class WeaviateWrapperClient:
         # Execute query - simplified for v4
         response = collection.query.fetch_objects(limit=limit, filters=where_filter)
 
-        return [dict(obj.properties) for obj in response.objects]  # type: ignore
+        # Include both properties and UUID for consistency
+        nodes = []
+        for obj in response.objects:
+            node_data = dict(obj.properties)  # type: ignore
+            node_data['uuid'] = str(obj.uuid)  # Add UUID for consistency
+            nodes.append(node_data)
+        
+        return nodes
 
     def delete_knowledge_node(self, node_id: str) -> bool:
         """Delete a knowledge node by ID."""
@@ -102,6 +122,51 @@ class WeaviateWrapperClient:
         except:
             return False
 
+    def update_node(self, name: str, new_content: Dict[str, Any]) -> bool:
+        """Update a knowledge node by name with new content."""
+        collection = self.get_collection()
+
+        try:
+            # Find node by name
+            nodes = self.query_knowledge_nodes({"name": name}, limit=1)
+            if not nodes or not nodes[0].get('uuid'):
+                print(f"Could not find node with name: {name}")
+                return False
+            
+            node_id = str(nodes[0]['uuid'])
+            
+            # First, get the existing node to preserve unchanged fields
+            existing_node = collection.query.fetch_object_by_id(node_id)
+            if not existing_node:
+                print(f"Node not found with ID: {node_id}")
+                return False
+            
+            # Merge existing properties with new content
+            updated_properties = dict(existing_node.properties)  # type: ignore
+            updated_properties.update(new_content)
+            
+            # Update the node
+            collection.data.update(
+                uuid=node_id,
+                properties=updated_properties
+            )
+            return True
+        except Exception as e:
+            print(f"Error updating node {name}: {str(e)}")
+            return False
+
+    def count_objects(self) -> int:
+        """Count the total number of objects in the collection."""
+        collection = self.get_collection()
+
+        try:
+            # Use aggregate to count all objects
+            response = collection.aggregate.over_all(total_count=True)
+            return response.total_count or 0
+        except Exception as e:
+            print(f"Error counting objects: {str(e)}")
+            return 0
+
     def search_nodes_by_text(
         self, query_text: str, node_type: Optional[str] = None, limit: int = 10
     ) -> List[Dict[str, Any]]:
@@ -110,12 +175,21 @@ class WeaviateWrapperClient:
 
         if node_type is not None:
             response = collection.query.near_text(
-                query=query_text, limit=limit, filters=Filter.by_property("type").equal(node_type)
+                query=query_text,
+                limit=limit,
+                filters=Filter.by_property("type").equal(node_type),
             )
         else:
             response = collection.query.near_text(query=query_text, limit=limit)
 
-        return [dict(obj.properties) for obj in response.objects]  # type: ignore
+        # Include both properties and UUID for deduplication
+        nodes = []
+        for obj in response.objects:
+            node_data = dict(obj.properties)  # type: ignore
+            node_data['uuid'] = str(obj.uuid)  # Add UUID for deduplication
+            nodes.append(node_data)
+        
+        return nodes
 
     def search_nodes_by_vector(
         self, vector: List[float], node_type: Optional[str] = None, limit: int = 10
@@ -133,7 +207,14 @@ class WeaviateWrapperClient:
             near_vector=vector, limit=limit, filters=where_filter
         )
 
-        return [dict(obj.properties) for obj in response.objects]  # type: ignore
+        # Include both properties and UUID for consistency
+        nodes = []
+        for obj in response.objects:
+            node_data = dict(obj.properties)  # type: ignore
+            node_data['uuid'] = str(obj.uuid)  # Add UUID for consistency
+            nodes.append(node_data)
+        
+        return nodes
 
     def get_node_vector(self, node_id: str) -> Optional[List[float]]:
         """Get the vector embedding for a specific node."""

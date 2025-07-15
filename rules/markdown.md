@@ -3,16 +3,16 @@
 ## Title
 
 **VietPhrase Reader Assistant (VRA)**\
-An AI-powered assistant specialized in converting *VietPhrase* (a bilingual format derived from Chinese texts) into fluent, high-quality Vietnamese suitable for casual reading and translation validation. It uses LLM-driven translation refinement and integrates Weaviate-based storage to persist and enrich contextual knowledge such as characters, glossary terms, key events, and style corrections.
+An AI-powered assistant specialized in converting *VietPhrase* (a Vietnamese text format) into fluent, high-quality Vietnamese suitable for casual reading and translation validation. It uses LLM-driven translation refinement and integrates Weaviate-based storage to persist and enrich contextual knowledge such as characters, glossary terms, key events, and style corrections.
 
 
 ---
 
 ## 2. Background & Problem Statement
 
-Vietnamese fan translators often rely on VietPhrase—line-by-line bilingual scripts that map Chinese segments to Vietnamese meanings—to consume or retranslate novels. However, these scripts are rarely fluent, often awkward, and difficult for general readers to enjoy. Additionally, transformation into readable Vietnamese remains manual and slow.
+Vietnamese translators and readers often work with VietPhrase—Vietnamese text segments that may be literal translations or rough drafts—to consume or refine novels. However, these texts are rarely fluent, often awkward, and difficult for general readers to enjoy. Additionally, transformation into readable Vietnamese remains manual and slow.
 
-> **Opportunity:** Build a smart translation agent that automatically references previous decisions (character names, glossary terms, recurring phrases), updates memory with new findings, and generates fluent output from rigid input.
+> **Opportunity:** Build a smart translation agent that automatically references previous decisions (character names, glossary terms, recurring phrases), updates memory with new findings, and generates fluent output from rough Vietnamese input.
 
 ---
 
@@ -50,7 +50,7 @@ The agent maintains a long-term semantic memory in Weaviate. It treats all domai
 - `Character`
 - `Event`
 
-All nodes are searchable via hybrid retrieval and have vector embeddings produced by Weaviate’s `text2vec-google` module (Gemini API).
+All nodes are searchable via hybrid retrieval and have vector embeddings produced by Weaviate's `text2vec-google` module (Gemini API).
 
 ### Example Schema (Flexible Node Type)
 
@@ -89,7 +89,7 @@ All nodes are searchable via hybrid retrieval and have vector embeddings produce
 - Flexible node system stored in Weaviate
 - Semantic memory-based prompting to LLM
 
-### Out‑of‑Scope (Phase 1)
+### Out‑of‑Scope (Phase 1)
 
 - Manual glossary editing
 - Multi-user collaboration

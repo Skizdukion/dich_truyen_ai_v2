@@ -82,7 +82,7 @@ Quyết định về các thao tác bộ nhớ và trả về dưới dạng JSO
     ],
     "update_nodes": [
         {{
-            "node_id": "id_nút_hiện_có",
+            "name": "Tên chính",
             "new_content": "nội dung_đã_cập_nhật"
         }}
     ]

@@ -7,8 +7,8 @@ from src.agent.state import ChunkState
 @dataclass
 class ChunkingConfig:
     """Configuration for Vietnamese text chunking"""
-    max_chunk_size: int = 6000  # Maximum characters per chunk
-    min_chunk_size: int = 2000  # Minimum characters per chunk
+    max_chunk_size: int = 5000  # Maximum characters per chunk
+    min_chunk_size: int = 800  # Minimum characters per chunk
     overlap_size: int = 0       # Overlap between chunks for context continuity
     preserve_sentences: bool = True  # Try to keep sentences intact
     preserve_paragraphs: bool = True  # Try to keep paragraphs intact

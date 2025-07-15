@@ -50,28 +50,28 @@ class TranslationTools:
             self.translation_llm = ChatGoogleGenerativeAI(
                 model=self.config.translation_model,
                 temperature=0.3,  # Lower temperature for more consistent translations
-                max_tokens=4000
+                max_tokens=8192  # Increased for longer Vietnamese translations
             )
             
             # Initialize memory search LLM
             self.memory_search_llm = ChatGoogleGenerativeAI(
                 model=self.config.memory_search_model,
                 temperature=0.1,  # Very low temperature for consistent search queries
-                max_tokens=1000
+                max_tokens=8192
             )
             
             # Initialize memory update LLM
             self.memory_update_llm = ChatGoogleGenerativeAI(
                 model=self.config.memory_update_model,
                 temperature=0.2,  # Low temperature for consistent decisions
-                max_tokens=2000
+                max_tokens=8192
             )
             
             # Initialize context summary LLM
             self.context_summary_llm = ChatGoogleGenerativeAI(
                 model=self.config.context_summary_model,
                 temperature=0.3,  # Moderate temperature for natural summaries
-                max_tokens=1000
+                max_tokens=8192
             )
             
             logger.info("LLM clients initialized successfully")
@@ -153,16 +153,29 @@ class TranslationTools:
                 
                 response = self.memory_search_llm.invoke(messages)
                 
-                # Parse JSON response
+                # Parse JSON response - handle markdown code blocks
                 try:
-                    queries = json.loads(str(response.content))
+                    content = str(response.content).strip()
+                    
+                    # Remove markdown code blocks if present
+                    if content.startswith('```json'):
+                        content = content[7:]  # Remove ```json
+                    if content.startswith('```'):
+                        content = content[3:]  # Remove ```
+                    if content.endswith('```'):
+                        content = content[:-3]  # Remove ```
+                    
+                    content = content.strip()
+                    queries = json.loads(content)
+                    
                     if isinstance(queries, list):
-                        return queries[:3]  # Limit to 3 queries
+                        return queries[:8]  # Limit to 3 queries
                     else:
                         logger.warning("Invalid JSON response format in search queries")
                         return self._fallback_search_queries(chunk_text)
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse JSON response in search queries")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON response in search queries: {e}")
+                    logger.warning(f"Raw response: {str(response.content)}")
                     return self._fallback_search_queries(chunk_text)
             else:
                 return self._fallback_search_queries(chunk_text)
@@ -205,12 +218,24 @@ class TranslationTools:
                 
                 response = self.memory_update_llm.invoke(messages)
                 
-                # Parse JSON response
+                # Parse JSON response - handle markdown code blocks
                 try:
-                    operations = json.loads(str(response.content))
+                    content = str(response.content).strip()
+                    
+                    # Remove markdown code blocks if present
+                    if content.startswith('```json'):
+                        content = content[7:]  # Remove ```json
+                    if content.startswith('```'):
+                        content = content[3:]  # Remove ```
+                    if content.endswith('```'):
+                        content = content[:-3]  # Remove ```
+                    
+                    content = content.strip()
+                    operations = json.loads(content)
                     return operations
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse memory operations JSON in memory operations")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse memory operations JSON: {e}")
+                    logger.warning(f"Raw response: {str(response.content)}")
                     return {"create_nodes": [], "update_nodes": []}
             else:
                 return {"create_nodes": [], "update_nodes": []}

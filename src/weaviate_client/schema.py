@@ -26,15 +26,14 @@ def validate_knowledge_node(node: dict) -> List[str]:
     return errors
 
 
+
 def create_or_get_collection(client: WeaviateClient, name) -> Collection:
-    print(f"Creating or getting collection {name}")
     if client is not None:
         collection = client.collections.get(name)
-        
+
         if collection.exists():
             return collection
         else:
-            print(f"Creating collection {name}")
             return client.collections.create(
                 name,
                 description="A node representing a chunk, translation, memory, etc.",

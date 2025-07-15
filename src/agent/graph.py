@@ -39,7 +39,7 @@ def create_translation_graph(config: Configuration):
     """
     
     # Initialize Weaviate client and translation tools
-    weaviate_client = WeaviateWrapperClient()
+    # weaviate_client = WeaviateWrapperClient()
     translation_tools = TranslationTools(config)
     
     # Create the graph
@@ -84,14 +84,18 @@ def chunk_input_node(state: OverallState) -> OverallState:
     Returns:
         OverallState: Updated state with current chunk information
     """
-    logger.info(f"Processing chunk {state['current_chunk_index'] + 1}/{state['total_chunks']}")
+    # Use translated_chunks length to determine which chunk to process
+    chunks_processed = len(state['translated_chunks'])
+    current_chunk_index = chunks_processed
+    
+    logger.info(f"Processing chunk {current_chunk_index + 1}/{state['total_chunks']} (chunks_processed={chunks_processed})")
     
     # Get the current chunk
-    current_chunk = state['chunks'][state['current_chunk_index']]
+    current_chunk = state['chunks'][current_chunk_index]
     
     # Update translation state
     state['translation_state'] = {
-        'chunk_id': f"chunk_{state['current_chunk_index']}",
+        'chunk_id': f"chunk_{current_chunk_index}",
         'original_text': current_chunk['chunk_text'],
         'translated_text': None,
         'memory_context': [],
@@ -101,8 +105,8 @@ def chunk_input_node(state: OverallState) -> OverallState:
     }
     
     # Mark chunk as being processed
-    state['chunks'][state['current_chunk_index']]['is_processed'] = True
-    state['chunks'][state['current_chunk_index']]['translation_attempts'] += 1
+    state['chunks'][current_chunk_index]['is_processed'] = True
+    state['chunks'][current_chunk_index]['translation_attempts'] += 1
     
     logger.info(f"Chunk input processed: {len(current_chunk['chunk_text'])} characters")
     return state
@@ -120,7 +124,10 @@ def search_memory_node(state: OverallState, translation_tools: TranslationTools)
     """
     try:
         weaviate_client = WeaviateWrapperClient()
-        current_chunk = state['chunks'][state['current_chunk_index']]
+        # Use translated_chunks length to determine which chunk to process
+        chunks_processed = len(state['translated_chunks'])
+        current_chunk_index = chunks_processed
+        current_chunk = state['chunks'][current_chunk_index]
         
         # Generate search queries from the chunk text using translation tools
         search_queries = translation_tools.generate_search_queries(current_chunk['chunk_text'])
@@ -128,14 +135,14 @@ def search_memory_node(state: OverallState, translation_tools: TranslationTools)
         # Search for relevant nodes in Weaviate
         retrieved_nodes = []
         for query in search_queries:
-            nodes = weaviate_client.search_nodes_by_text(query, limit=5)
+            nodes = weaviate_client.search_nodes_by_text(query, limit=2)
             retrieved_nodes.extend(nodes)
         
-        # Remove duplicates based on node ID
+        # Remove duplicates based on node UUID
         unique_nodes = {}
         for node in retrieved_nodes:
-            if node.get('id') not in unique_nodes:
-                unique_nodes[node.get('id')] = node
+            if node.get('uuid') not in unique_nodes:
+                unique_nodes[node.get('uuid')] = node
         
         retrieved_nodes = list(unique_nodes.values())
         
@@ -180,15 +187,17 @@ def translate_chunk_node(state: OverallState, translation_tools: TranslationTool
         state['translation_state']['translated_text'] = translated_text
         state['translation_state']['processing_status'] = 'completed'
         
-        # Add to translated text list
-        state['translated_text'].append(translated_text)
-        
-        logger.info(f"Translation completed for chunk {state['current_chunk_index']}")
+        # Add the translated text to the accumulated list
+        logger.info(f"Before adding translated chunk: len={len(state['translated_chunks'])}")
+        state['translated_chunks'].append(translated_text)
+        logger.info(f"Translation completed, added chunk: {translated_text[:100]}...")
         
     except Exception as e:
         logger.error(f"Error in translation: {str(e)}")
         state['translation_state']['error_message'] = f"Translation failed: {str(e)}"
         state['translation_state']['processing_status'] = 'failed'
+    
+    logger.info(f"translate_chunk_node final: len(translated_chunks)={len(state['translated_chunks'])}")
     
     return state
 
@@ -204,6 +213,7 @@ def memory_update_node(state: OverallState, translation_tools: TranslationTools)
         OverallState: Updated state with memory operations
     """
     try:
+        logger.info(f"memory_update_node: len(translated_chunks)={len(state['translated_chunks'])}")
         weaviate_client = WeaviateWrapperClient()
         
         # Prepare context for memory update decision
@@ -236,10 +246,15 @@ def memory_update_node(state: OverallState, translation_tools: TranslationTools)
         # Update existing nodes
         for update_data in memory_operations.get('update_nodes', []):
             try:
-                node_id = update_data['node_id']
+                name = update_data['name']
                 new_content = update_data['new_content']
-                # TODO: Implement update_node method in WeaviateWrapperClient
-                updated_nodes.append({'id': node_id, 'new_content': new_content})
+                
+                # Use the new update_node method
+                success = weaviate_client.update_node(name, new_content)
+                if success:
+                    updated_nodes.append({'id': node_id, 'new_content': new_content})
+                else:
+                    logger.error(f"Failed to update node {node_id}")
             except Exception as e:
                 logger.error(f"Failed to update node: {str(e)}")
         
@@ -248,10 +263,12 @@ def memory_update_node(state: OverallState, translation_tools: TranslationTools)
         state['memory_state']['updated_nodes'].extend(updated_nodes)
         
         # Log memory operation
+        # Use translated_chunks length to determine which chunk was processed
+        chunks_processed = len(state['translated_chunks'])
         memory_operation = {
             'operation_type': 'memory_update',
             'node_type': 'mixed',
-            'query_or_content': f"Translation of chunk {state['current_chunk_index']}",
+            'query_or_content': f"Translation of chunk {chunks_processed - 1}",
             'result': {
                 'created_count': len(created_nodes),
                 'updated_count': len(updated_nodes)
@@ -261,6 +278,13 @@ def memory_update_node(state: OverallState, translation_tools: TranslationTools)
         state['memory_state']['memory_operations'].append(memory_operation)
         
         logger.info(f"Memory update completed: {len(created_nodes)} created, {len(updated_nodes)} updated")
+        
+        # Log total objects in Weaviate after memory update
+        try:
+            total_objects = weaviate_client.count_objects()
+            logger.info(f"Total objects in Weaviate collection: {total_objects}")
+        except Exception as e:
+            logger.warning(f"Could not count Weaviate objects: {str(e)}")
         
     except Exception as e:
         logger.error(f"Error in memory update: {str(e)}")
@@ -280,6 +304,7 @@ def recent_context_update_node(state: OverallState, translation_tools: Translati
         OverallState: Updated state with refreshed recent context
     """
     try:
+        logger.info(f"recent_context_update_node: len(translated_chunks)={len(state['translated_chunks'])}")
         # Prepare context for summary
         recent_context = translation_tools._format_recent_context(state['memory_context'])
         current_translation = state['translation_state']['translated_text']
@@ -291,8 +316,10 @@ def recent_context_update_node(state: OverallState, translation_tools: Translati
             context_summary = "Không có bản dịch để tóm tắt"
         
         # Update recent context (keep last 5 items to avoid context overflow)
+        # Use translated_chunks length to determine which chunk was processed
+        chunks_processed = len(state['translated_chunks'])
         state['memory_context'].append({
-            'chunk_index': state['current_chunk_index'],
+            'chunk_index': chunks_processed - 1,
             'summary': context_summary,
             'timestamp': str(datetime.now())
         })
@@ -320,14 +347,22 @@ def should_continue_to_next_chunk(state: OverallState) -> str:
     Returns:
         str: "continue" or "end"
     """
+    # Use translated_chunks length to determine progress instead of current_chunk_index
+    chunks_processed = len(state['translated_chunks'])
+    total_chunks = state['total_chunks']
+    
+    logger.info(f"Checking continuation: chunks_processed={chunks_processed}, total_chunks={total_chunks}")
+    
     # Check if there are more chunks to process
-    if state['current_chunk_index'] < state['total_chunks'] - 1:
-        # Move to next chunk
-        state['current_chunk_index'] += 1
+    if chunks_processed < total_chunks:
+        # Update current_chunk_index to match the next chunk to process
+        state['current_chunk_index'] = chunks_processed
+        logger.info(f"Continuing to next chunk: {state['current_chunk_index']}")
         return "continue"
     else:
         # All chunks processed
         state['processing_complete'] = True
+        logger.info("All chunks processed, ending workflow")
         return "end"
 
 

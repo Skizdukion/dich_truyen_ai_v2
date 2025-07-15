@@ -10,70 +10,60 @@ class Configuration(BaseModel):
 
     # Translation-specific models
     translation_model: str = Field(
-        default="gemini-2.0-flash",
-        description="The name of the language model to use for translation."
+        default="gemini-2.5-flash",
+        description="The name of the language model to use for translation.",
     )
 
     memory_search_model: str = Field(
-        default="gemini-2.0-flash",
-        description="The name of the language model to use for memory search queries."
+        default="gemini-2.5-flash",
+        description="The name of the language model to use for memory search queries.",
     )
 
     memory_update_model: str = Field(
-        default="gemini-2.0-flash",
-        description="The name of the language model to use for memory update decisions."
+        default="gemini-2.5-flash",
+        description="The name of the language model to use for memory update decisions.",
     )
 
     context_summary_model: str = Field(
-        default="gemini-2.0-flash",
-        description="The name of the language model to use for context summarization."
-    )
-
-    # Translation workflow settings
-    default_chunk_size: int = Field(
-        default=1000,
-        description="Default size for text chunking in characters."
+        default="gemini-2.5-flash",
+        description="The name of the language model to use for context summarization.",
     )
 
     max_translation_attempts: int = Field(
         default=3,
-        description="Maximum number of retry attempts for failed translations."
+        description="Maximum number of retry attempts for failed translations.",
     )
 
     max_memory_context_items: int = Field(
-        default=5,
-        description="Maximum number of recent context items to maintain."
+        default=5, description="Maximum number of recent context items to maintain."
     )
 
     memory_search_limit: int = Field(
-        default=5,
-        description="Maximum number of memory nodes to retrieve per search."
+        default=5, description="Maximum number of memory nodes to retrieve per search."
     )
 
     # Legacy web research models (kept for backward compatibility)
     query_generator_model: str = Field(
         default="gemini-2.0-flash",
-        description="The name of the language model to use for the agent's query generation."
+        description="The name of the language model to use for the agent's query generation.",
     )
 
     reflection_model: str = Field(
         default="gemini-2.5-flash",
-        description="The name of the language model to use for the agent's reflection."
+        description="The name of the language model to use for the agent's reflection.",
     )
 
     answer_model: str = Field(
         default="gemini-2.5-pro",
-        description="The name of the language model to use for the agent's answer."
+        description="The name of the language model to use for the agent's answer.",
     )
 
     number_of_initial_queries: int = Field(
-        default=3,
-        description="The number of initial search queries to generate."
+        default=3, description="The number of initial search queries to generate."
     )
 
     max_research_loops: int = Field(
-        default=2,
-        description="The maximum number of research loops to perform."
+        default=2, description="The maximum number of research loops to perform."
     )
 
     @classmethod
