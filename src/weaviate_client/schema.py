@@ -40,7 +40,7 @@ def create_or_get_collection(client: WeaviateClient, name) -> Collection:
                 vectorizer_config=[
                     Configure.NamedVectors.text2vec_google_aistudio(
                         name="text_vector",
-                        source_properties=["text"],
+                        source_properties=["content", "name", "alisas"],
                         model_id="text-embedding-004",  # Google AI Studio model
                     )
                 ],
