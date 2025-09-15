@@ -90,6 +90,12 @@ def chunk_input_node(state: OverallState) -> OverallState:
     
     logger.info(f"Processing chunk {current_chunk_index + 1}/{state['total_chunks']} (chunks_processed={chunks_processed})")
     
+    # Safety check: ensure we don't exceed the chunks array bounds
+    if current_chunk_index >= len(state['chunks']):
+        logger.error(f"Chunk index {current_chunk_index} exceeds available chunks {len(state['chunks'])}")
+        state['processing_complete'] = True
+        return state
+    
     # Get the current chunk
     current_chunk = state['chunks'][current_chunk_index]
     
@@ -127,6 +133,13 @@ def search_memory_node(state: OverallState, translation_tools: TranslationTools)
         # Use translated_chunks length to determine which chunk to process
         chunks_processed = len(state['translated_chunks'])
         current_chunk_index = chunks_processed
+        
+        # Safety check: ensure we don't exceed the chunks array bounds
+        if current_chunk_index >= len(state['chunks']):
+            logger.error(f"Chunk index {current_chunk_index} exceeds available chunks {len(state['chunks'])}")
+            state['translation_state']['processing_status'] = 'failed'
+            return state
+            
         current_chunk = state['chunks'][current_chunk_index]
         
         # Generate search queries from the chunk text using translation tools
@@ -353,17 +366,22 @@ def should_continue_to_next_chunk(state: OverallState) -> str:
     
     logger.info(f"Checking continuation: chunks_processed={chunks_processed}, total_chunks={total_chunks}")
     
-    # Check if there are more chunks to process
-    if chunks_processed < total_chunks:
-        # Update current_chunk_index to match the next chunk to process
-        state['current_chunk_index'] = chunks_processed
-        logger.info(f"Continuing to next chunk: {state['current_chunk_index']}")
-        return "continue"
-    else:
+    # Add safety check to prevent infinite loops
+    if chunks_processed >= total_chunks:
         # All chunks processed
         state['processing_complete'] = True
         logger.info("All chunks processed, ending workflow")
         return "end"
+    elif chunks_processed < 0:
+        # Safety check for negative values
+        logger.warning(f"Invalid chunks_processed value: {chunks_processed}, ending workflow")
+        state['processing_complete'] = True
+        return "end"
+    else:
+        # Update current_chunk_index to match the next chunk to process
+        state['current_chunk_index'] = chunks_processed
+        logger.info(f"Continuing to next chunk: {state['current_chunk_index']}")
+        return "continue"
 
 
 # Import datetime for timestamps

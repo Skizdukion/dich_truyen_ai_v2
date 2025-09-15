@@ -77,7 +77,7 @@ def translate_chapter(chapter_name, chunks, graph, memory_context=None):
     print(f"Starting translation of {chapter_name}...")
     print(f"Initial state - chunks: {len(chunks)}, translated_chunks: {len(state['translated_chunks'])}")
     
-    result_state = graph.invoke(state)
+    result_state = graph.invoke(state, config={"recursion_limit": 50})
 
     print(f"✓ Translation completed!")
     print(f"✓ Translated chunks: {len(result_state['translated_chunks'])}")

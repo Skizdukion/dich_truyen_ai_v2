@@ -112,7 +112,7 @@ class TranslationTools:
             # Call LLM for translation
             if self.translation_llm:
                 messages = [
-                    SystemMessage(content="Bạn là chuyên gia dịch thuật tiếng Việt chuyên nghiệp."),
+                    SystemMessage(content="Bạn là chuyên gia dịch thuật tiếng Việt chuyên nghiệp. Chỉ trả về bản dịch tiếng Việt, không thêm bất kỳ lời bình luận hay giải thích nào."),
                     HumanMessage(content=prompt)
                 ]
                 
