@@ -10,7 +10,7 @@ class KnowledgeNode(TypedDict, total=False):
     label: str
     name: str
     content: str
-    alias: Optional[List[str]]
+    alias: str
     metadata: Optional[str]
 
 
@@ -63,7 +63,7 @@ def create_or_get_collection(client: WeaviateClient, name) -> Collection:
                     ),
                     Property(
                         name="alias",
-                        data_type=DataType.TEXT_ARRAY,
+                        data_type=DataType.TEXT,
                     ),
                     Property(
                         name="metadata",

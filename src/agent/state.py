@@ -65,6 +65,8 @@ class OverallState(TypedDict):
     # Error handling
     failed_chunks: List[int]  # Indices of failed chunks (no operator.add)
     retry_count: int  # Number of retry attempts for current chunk
+    # Tracing
+    trace_dir: Optional[str]
 
 
 class KnowledgeNode(TypedDict):

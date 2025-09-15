@@ -10,22 +10,22 @@ class Configuration(BaseModel):
 
     # Translation-specific models
     translation_model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-1.5-flash",
         description="The name of the language model to use for translation.",
     )
 
     memory_search_model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-1.5-flash",
         description="The name of the language model to use for memory search queries.",
     )
 
     memory_update_model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-1.5-flash",
         description="The name of the language model to use for memory update decisions.",
     )
 
     context_summary_model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-1.5-flash",
         description="The name of the language model to use for context summarization.",
     )
 
@@ -53,18 +53,18 @@ class Configuration(BaseModel):
         description="The name of the language model to use for the agent's reflection.",
     )
 
-    answer_model: str = Field(
-        default="gemini-2.5-pro",
-        description="The name of the language model to use for the agent's answer.",
-    )
+    # answer_model: str = Field(
+    #     default="gemini-2.5-pro",
+    #     description="The name of the language model to use for the agent's answer.",
+    # )
 
-    number_of_initial_queries: int = Field(
-        default=3, description="The number of initial search queries to generate."
-    )
+    # number_of_initial_queries: int = Field(
+    #     default=3, description="The number of initial search queries to generate."
+    # )
 
-    max_research_loops: int = Field(
-        default=2, description="The maximum number of research loops to perform."
-    )
+    # max_research_loops: int = Field(
+    #     default=2, description="The maximum number of research loops to perform."
+    # )
 
     @classmethod
     def from_runnable_config(

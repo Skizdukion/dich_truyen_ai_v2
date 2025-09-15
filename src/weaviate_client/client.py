@@ -63,11 +63,14 @@ class WeaviateWrapperClient:
 
     def insert_knowledge_node(self, node: KnowledgeNode) -> UUID:
         """Insert a single knowledge node and return the generated UUID."""
-        collection = self.get_collection()
-
-        # Insert object and get the generated UUID
-        result = collection.data.insert(properties=node)  # type: ignore
-        return result
+        try:
+            node["alias"] = ";".join(node["alias"])
+            collection = self.get_collection()
+            result = collection.data.insert(properties=node)  # type: ignore
+            return result
+        except Exception as e:
+            print(f"Error inserting node {node.get('name')}: {str(e)}")
+            return None
 
     def get_knowledge_node(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Get a knowledge node by ID."""
@@ -77,7 +80,7 @@ class WeaviateWrapperClient:
             obj = collection.query.fetch_object_by_id(node_id)
             if obj:
                 node_data = dict(obj.properties)  # type: ignore
-                node_data['uuid'] = str(obj.uuid)  # Add UUID for consistency
+                node_data["uuid"] = str(obj.uuid)  # Add UUID for consistency
                 return node_data
             return None
         except:
@@ -107,9 +110,9 @@ class WeaviateWrapperClient:
         nodes = []
         for obj in response.objects:
             node_data = dict(obj.properties)  # type: ignore
-            node_data['uuid'] = str(obj.uuid)  # Add UUID for consistency
+            node_data["uuid"] = str(obj.uuid)  # Add UUID for consistency
             nodes.append(node_data)
-        
+
         return nodes
 
     def delete_knowledge_node(self, node_id: str) -> bool:
@@ -122,38 +125,83 @@ class WeaviateWrapperClient:
         except:
             return False
 
-    def update_node(self, name: str, new_content: Dict[str, Any]) -> bool:
-        """Update a knowledge node by name with new content."""
+    def update_node(
+        self, name: str, new_content: Dict[str, Any]
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """Update a knowledge node by name with new content. Returns (success, updated_properties)."""
         collection = self.get_collection()
 
         try:
             # Find node by name
             nodes = self.query_knowledge_nodes({"name": name}, limit=1)
-            if not nodes or not nodes[0].get('uuid'):
+            if not nodes or not nodes[0].get("uuid"):
                 print(f"Could not find node with name: {name}")
-                return False
-            
-            node_id = str(nodes[0]['uuid'])
-            
+                return False, None
+
+            node_id = str(nodes[0]["uuid"])
+
             # First, get the existing node to preserve unchanged fields
             existing_node = collection.query.fetch_object_by_id(node_id)
             if not existing_node:
                 print(f"Node not found with ID: {node_id}")
-                return False
-            
-            # Merge existing properties with new content
-            updated_properties = dict(existing_node.properties)  # type: ignore
-            updated_properties.update(new_content)
-            
-            # Update the node
-            collection.data.update(
-                uuid=node_id,
-                properties=updated_properties
+                return False, None
+
+            # Normalize incoming content
+            payload = (
+                new_content.get("new_content", new_content)
+                if isinstance(new_content, dict)
+                else {}
             )
-            return True
+            updated_properties: Dict[str, Any] = dict(existing_node.properties)
+            # Merge content
+            if isinstance(payload, dict) and "content" in payload:
+                updated_properties["content"] = payload["content"]
+
+            if len(payload.get("alias", [])) > 0:
+                updated_properties["alias"] += ";".join(payload.get("alias", []))
+
+            collection.data.update(uuid=node_id, properties=updated_properties)
+            return True, updated_properties
         except Exception as e:
             print(f"Error updating node {name}: {str(e)}")
-            return False
+            return False, None
+
+    def update_node_by_id(
+        self, node_id: str, new_content: Dict[str, Any]
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """Update a knowledge node by UUID with new content. Returns (success, updated_properties)."""
+        collection = self.get_collection()
+        try:
+            existing_node = collection.query.fetch_object_by_id(node_id)
+            if not existing_node:
+                print(f"Node not found with ID: {node_id}")
+                return False, None
+            updated_properties: Dict[str, Any] = dict(existing_node.properties)  # type: ignore
+            payload = (
+                new_content.get("new_content", new_content)
+                if isinstance(new_content, dict)
+                else {}
+            )
+            if isinstance(payload, dict) and "content" in payload:
+                updated_properties["content"] = payload["content"]
+            if isinstance(payload, dict) and "alias" in payload:
+                incoming_alias = payload.get("alias", [])
+                if isinstance(incoming_alias, str):
+                    incoming_list = [a for a in incoming_alias.split(";") if a]
+                else:
+                    incoming_list = list(incoming_alias)
+                existing_alias = updated_properties.get("alias", [])
+                if isinstance(existing_alias, str):
+                    existing_list = [a for a in existing_alias.split(";") if a]
+                else:
+                    existing_list = list(existing_alias)
+                merged = list(dict.fromkeys(existing_list + incoming_list))
+                updated_properties["alias"] = merged
+            collection.data.update(uuid=node_id, properties=updated_properties)
+            return True, updated_properties
+        except Exception as e:
+            print(f"Error updating node by id {node_id}: {str(e)}")
+            return False, None
 
     def count_objects(self) -> int:
         """Count the total number of objects in the collection."""
@@ -186,9 +234,9 @@ class WeaviateWrapperClient:
         nodes = []
         for obj in response.objects:
             node_data = dict(obj.properties)  # type: ignore
-            node_data['uuid'] = str(obj.uuid)  # Add UUID for deduplication
+            node_data["uuid"] = str(obj.uuid)  # Add UUID for deduplication
             nodes.append(node_data)
-        
+
         return nodes
 
     def search_nodes_by_vector(
@@ -211,9 +259,9 @@ class WeaviateWrapperClient:
         nodes = []
         for obj in response.objects:
             node_data = dict(obj.properties)  # type: ignore
-            node_data['uuid'] = str(obj.uuid)  # Add UUID for consistency
+            node_data["uuid"] = str(obj.uuid)  # Add UUID for consistency
             nodes.append(node_data)
-        
+
         return nodes
 
     def get_node_vector(self, node_id: str) -> Optional[List[float]]:

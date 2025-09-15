@@ -85,7 +85,8 @@ Quyết định về các thao tác bộ nhớ và trả về dưới dạng JSO
     "update_nodes": [
         {{
             "name": "Tên chính",
-            "new_content": "nội dung_đã_cập_nhật"
+            "content": "nội dung đã_cập_nhật",
+            "alias": ["tên biến thể mới cập nhật 1", "tên biến thể mới cập nhật 2"]
         }}
     ]
 }}"""

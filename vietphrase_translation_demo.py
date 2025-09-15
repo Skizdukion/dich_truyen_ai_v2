@@ -5,9 +5,10 @@ Task 5.0: Interact with agent to translate chapters 1 and 2
 """
 
 import sys
-import os
-
 sys.path.append("src")
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from agent.graph import create_translation_graph
 from agent.configuration import Configuration
@@ -31,6 +32,21 @@ def clear_all_data(wrapper: WeaviateWrapperClient):
     print("All data cleared!\n")
 
 
+def _is_quota_error(err: Exception) -> bool:
+    """Heuristically detect quota/rate-limit errors from LLM/HTTP layers."""
+    msg = str(err)
+    msg_lower = msg.lower()
+    quota_terms = [
+        "quota",
+        "rate limit",
+        "resource exhausted",
+        "429",
+        "exceeded",
+        "too many requests",
+    ]
+    return any(term in msg_lower for term in quota_terms)
+
+
 def load_and_chunk_chapter(chapter_path):
     """Load and chunk a chapter file."""
     print(f"Loading {chapter_path}...")
@@ -47,17 +63,132 @@ def load_and_chunk_chapter(chapter_path):
     return chunks
 
 
-def translate_chapter(chapter_name, chunks, graph, memory_context=None):
+def load_demo_chapter_chunks(demo_dir: str, chapter_index: int):
+    """Load already-split chunk files for a chapter from demo directory, sorted numerically."""
+    import os
+    import re
+
+    pattern = re.compile(rf"^chap_{chapter_index}_chunk_(\d+)\.txt$")
+
+    try:
+        all_files = os.listdir(demo_dir)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Demo directory not found: {demo_dir}")
+
+    matched = []
+    for filename in all_files:
+        m = pattern.match(filename)
+        if m:
+            chunk_num = int(m.group(1))
+            matched.append((chunk_num, filename))
+
+    matched.sort(key=lambda x: x[0])
+
+    chunks = []
+    for _, filename in matched:
+        path = os.path.join(demo_dir, filename)
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+            chunks.append({"chunk_text": content})
+
+    print(f"✓ Loaded {len(chunks)} chunks for chap_{chapter_index} from {demo_dir}")
+    return chunks
+
+
+def run_demo_directory(demo_dir: str, graph):
+    """Run translation over the whole demo directory in numeric order by chapter and chunk.
+
+    - Supports both pre-split files: chap_{n}_chunk_{m}.txt
+      and whole chapter files:      chap_{n}.txt
+    - Maintains memory context across chapters.
+    """
+    import os
+    import re
+
+    # Gather and sort all files numerically by inferred chapter and chunk
+    files = []
+    try:
+        for filename in os.listdir(demo_dir):
+            m_chunk = re.match(r"^chap_(\d+)_chunk_(\d+)\.txt$", filename)
+            m_whole = re.match(r"^chap_(\d+)\.txt$", filename)
+            if m_chunk:
+                ch = int(m_chunk.group(1))
+                ck = int(m_chunk.group(2))
+                files.append((ch, ck, filename))
+            elif m_whole:
+                ch = int(m_whole.group(1))
+                files.append((ch, 0, filename))
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Demo directory not found: {demo_dir}")
+
+    files.sort(key=lambda t: (t[0], t[1]))
+
+    memory_context = None
+    for ch, ck, filename in files:
+        chapter_name = f"CHAPTER {ch}" if ck == 0 else f"CHAPTER {ch} - PART {ck}"
+        input_path = os.path.join(demo_dir, filename)
+        print(f"\n=== PROCESSING {chapter_name} ({filename}) ===")
+
+        # Build per-file trace dir
+        base_name = os.path.splitext(filename)[0]
+        trace_dir = os.path.join("traces", base_name)
+
+        # Resume: skip if this chapter output already exists and is non-empty
+        if is_output_present(chapter_name):
+            print(f"↷ Skipping {chapter_name} (already translated)")
+            continue
+
+        # Prepare chunks: treat each input file independently
+        if re.match(r"^chap_\d+_chunk_\d+\.txt$", filename):
+            # Already a chunk file: keep as single chunk
+            with open(input_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            chunks = [{"chunk_text": content}]
+        else:
+            # Whole chapter: chunk on the fly
+            chunks = load_and_chunk_chapter(input_path)
+
+        # Translate with trace directory
+        try:
+            result = translate_chapter(chapter_name, chunks, graph, memory_context, trace_dir=trace_dir)
+            export_translation(chapter_name, result["translated_chunks"])
+        except Exception as e:
+            if _is_quota_error(e):
+                print(f"✗ Quota/rate limit detected: {e}")
+                print("Exiting immediately. Re-run later to resume.")
+                import sys as _sys
+                _sys.exit(2)
+            else:
+                # Stop on other errors so a rerun will continue from here
+                print(f"✗ Error processing {chapter_name}: {str(e)}")
+                print("You can rerun the script to continue from this point.")
+                break
+
+        # Carry memory forward
+        memory_context = result.get("memory_context")
+
+
+def translate_chapter(chapter_name, chunks, graph, memory_context=None, trace_dir: str = None):
     """Translate a chapter using the agent."""
     print(f"=== TRANSLATING {chapter_name} ===")
+
+    # Normalize chunks to ensure required fields exist
+    normalized_chunks = []
+    for ch in chunks:
+        chunk_obj = {
+            "chunk_text": ch.get("chunk_text", ""),
+            "is_processed": ch.get("is_processed", False),
+            "translation_attempts": ch.get("translation_attempts", 0),
+        }
+        normalized_chunks.append(chunk_obj)
 
     # Initialize state
     state = {
         "messages": [],
-        "input_text": " ".join([chunk["chunk_text"] for chunk in chunks]),
-        "chunks": chunks,
+        "input_text": " ".join([chunk["chunk_text"] for chunk in normalized_chunks]),
+        "chunks": normalized_chunks,
         "current_chunk_index": 0,
-        "total_chunks": len(chunks),
+        "total_chunks": len(normalized_chunks),
         "translated_chunks": [],
         "memory_context": memory_context or [],
         "translation_state": {},
@@ -72,6 +203,7 @@ def translate_chapter(chapter_name, chunks, graph, memory_context=None):
         "processing_complete": False,
         "failed_chunks": [],
         "retry_count": 0,
+        "trace_dir": trace_dir,
     }
 
     print(f"Starting translation of {chapter_name}...")
@@ -118,6 +250,17 @@ def export_translation(
     print(f"✓ Total translated chunks: {len(translated_chunks)}\n")
 
 
+def get_output_filename(chapter_name: str, output_dir: str = "translated_chapters") -> str:
+    import os
+    return f"{output_dir}/{chapter_name.lower().replace(' ', '_')}_translated.txt"
+
+
+def is_output_present(chapter_name: str, output_dir: str = "translated_chapters") -> bool:
+    import os
+    path = get_output_filename(chapter_name, output_dir)
+    return os.path.exists(path) and os.path.getsize(path) > 0
+
+
 def main():
     """Main function to run the translation demo."""
     print("VietPhrase Reader Assistant - Translation Demo")
@@ -130,25 +273,22 @@ def main():
     weaviate_client = WeaviateWrapperClient()
     print("✓ Agent initialized successfully!\n")
 
-    # Clear all data first
-    clear_all_data(weaviate_client)
-
-    # Translate Chapter 1
-    chap1_chunks = load_and_chunk_chapter("raw_text/demo/chap_1.txt")
-    result_ch1 = translate_chapter("CHAPTER 1", chap1_chunks, graph)
-    export_translation("CHAPTER 1", result_ch1["translated_chunks"])
-
-    # Translate Chapter 2 (with memory context from Chapter 1)
-    chap2_chunks = load_and_chunk_chapter("raw_text/demo/chap_2.txt")
-    result_ch2 = translate_chapter(
-        "CHAPTER 2", chap2_chunks, graph, memory_context=result_ch1["memory_context"]
+    # Continuation mechanism: Only reset Weaviate if no outputs yet
+    import os
+    out_dir = "translated_chapters"
+    os.makedirs(out_dir, exist_ok=True)
+    has_outputs = any(
+        f.endswith("_translated.txt") and os.path.getsize(os.path.join(out_dir, f)) > 0
+        for f in os.listdir(out_dir)
     )
-    export_translation("CHAPTER 2", result_ch2["translated_chunks"])
+    if not has_outputs:
+        clear_all_data(weaviate_client)
+    else:
+        print("Detected existing translations; skipping Weaviate reset and resuming...")
 
-    print("=== TRANSLATION DEMO COMPLETED ===")
-    print("✓ Chapter 1 translated with fresh memory")
-    print("✓ Chapter 2 translated with context from Chapter 1")
-    print("✓ All data was cleared before starting")
+    # Run the whole demo directory using numerically sorted chapters and chunks
+    demo_dir = "raw_text/demo"
+    run_demo_directory(demo_dir, graph)
 
 
 if __name__ == "__main__":

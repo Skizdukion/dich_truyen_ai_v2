@@ -79,6 +79,21 @@ class TranslationTools:
         except Exception as e:
             logger.error(f"Failed to initialize LLM clients: {str(e)}")
             raise
+        
+        # Initialize usage trackers
+        self.last_translation_usage = None
+        self.last_search_usage = None
+        self.last_memory_update_usage = None
+        self.last_context_summary_usage = None
+
+    def _estimate_tokens(self, text: str) -> int:
+        # Rough heuristic: ~4 chars per token for many English-like texts; VN may vary
+        if not text:
+            return 0
+        try:
+            return max(1, int(len(text) / 4))
+        except Exception:
+            return 0
     
     def translate_chunk(
         self, 
@@ -117,7 +132,25 @@ class TranslationTools:
                 ]
                 
                 response = self.translation_llm.invoke(messages)
+                # Capture token usage metadata if available
+                meta = None
+                try:
+                    meta = getattr(response, 'usage_metadata', None) or getattr(response, 'response_metadata', None)
+                except Exception:
+                    meta = None
+                # Fallback: estimated tokens from prompt and output if provider doesn't return usage
+                if not meta:
+                    meta = {
+                        'estimated_input_tokens': self._estimate_tokens(prompt),
+                    }
                 translated_text = str(response.content).strip()
+                # add output estimate
+                try:
+                    if isinstance(meta, dict):
+                        meta.setdefault('estimated_output_tokens', self._estimate_tokens(translated_text))
+                except Exception:
+                    pass
+                self.last_translation_usage = meta
                 
                 logger.info(f"Translation completed: {len(translated_text)} characters")
                 return translated_text
@@ -152,6 +185,17 @@ class TranslationTools:
                 ]
                 
                 response = self.memory_search_llm.invoke(messages)
+                # Capture token usage metadata if available
+                meta = None
+                try:
+                    meta = getattr(response, 'usage_metadata', None) or getattr(response, 'response_metadata', None)
+                except Exception:
+                    meta = None
+                if not meta:
+                    meta = {
+                        'estimated_input_tokens': self._estimate_tokens(prompt),
+                    }
+                self.last_search_usage = meta
                 
                 # Parse JSON response - handle markdown code blocks
                 try:
@@ -217,6 +261,17 @@ class TranslationTools:
                 ]
                 
                 response = self.memory_update_llm.invoke(messages)
+                # Capture token usage metadata if available
+                meta = None
+                try:
+                    meta = getattr(response, 'usage_metadata', None) or getattr(response, 'response_metadata', None)
+                except Exception:
+                    meta = None
+                if not meta:
+                    meta = {
+                        'estimated_input_tokens': self._estimate_tokens(prompt),
+                    }
+                self.last_memory_update_usage = meta
                 
                 # Parse JSON response - handle markdown code blocks
                 try:
@@ -270,7 +325,23 @@ class TranslationTools:
                 ]
                 
                 response = self.context_summary_llm.invoke(messages)
+                # Capture token usage metadata if available
+                meta = None
+                try:
+                    meta = getattr(response, 'usage_metadata', None) or getattr(response, 'response_metadata', None)
+                except Exception:
+                    meta = None
+                if not meta:
+                    meta = {
+                        'estimated_input_tokens': self._estimate_tokens(prompt),
+                    }
                 summary = str(response.content).strip()
+                try:
+                    if isinstance(meta, dict):
+                        meta.setdefault('estimated_output_tokens', self._estimate_tokens(summary))
+                except Exception:
+                    pass
+                self.last_context_summary_usage = meta
                 
                 return summary
             else:

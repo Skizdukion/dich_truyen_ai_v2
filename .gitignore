@@ -163,3 +163,4 @@ cython_debug/
 #.idea/
 raw_text/
 translated_chapters/
+traces/
