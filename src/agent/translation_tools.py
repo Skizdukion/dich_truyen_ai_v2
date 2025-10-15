@@ -49,28 +49,28 @@ class TranslationTools:
             # Initialize translation LLM
             self.translation_llm = ChatGoogleGenerativeAI(
                 model=self.config.translation_model,
-                temperature=0.3,  # Lower temperature for more consistent translations
+                temperature=0.0,  # Lower temperature for more consistent translations
                 max_tokens=8192  # Increased for longer Vietnamese translations
             )
             
             # Initialize memory search LLM
             self.memory_search_llm = ChatGoogleGenerativeAI(
                 model=self.config.memory_search_model,
-                temperature=0.1,  # Very low temperature for consistent search queries
+                temperature=0.0,  # Very low temperature for consistent search queries
                 max_tokens=8192
             )
             
             # Initialize memory update LLM
             self.memory_update_llm = ChatGoogleGenerativeAI(
                 model=self.config.memory_update_model,
-                temperature=0.2,  # Low temperature for consistent decisions
+                temperature=0.0,  # Low temperature for consistent decisions
                 max_tokens=8192
             )
             
             # Initialize context summary LLM
             self.context_summary_llm = ChatGoogleGenerativeAI(
                 model=self.config.context_summary_model,
-                temperature=0.3,  # Moderate temperature for natural summaries
+                temperature=0.0,  # Moderate temperature for natural summaries
                 max_tokens=8192
             )
             
