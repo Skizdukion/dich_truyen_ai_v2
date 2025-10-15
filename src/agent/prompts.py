@@ -54,7 +54,8 @@ Văn bản cần phân tích: {chunk_text}
 Tạo ra các truy vấn tìm kiếm dưới dạng mảng JSON của các chuỗi:"""
 
 
-memory_update_instructions = """Bạn là trợ lý AI quyết định thông tin mới nào từ bản dịch nên được lưu trữ trong cơ sở kiến thức.
+memory_update_instructions = """Bạn là trợ lý AI quyết định thông tin mới nào từ bản dịch nên được lưu trữ 
+trong cơ sở kiến thức.
 
 Nhiệm vụ của bạn là xác định kiến thức mới xuất hiện trong quá trình dịch thuật và quyết định có nên:
 1. Tạo nút kiến thức mới (cho thuật ngữ, nhân vật, sự kiện mới)
