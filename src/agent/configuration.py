@@ -10,22 +10,22 @@ class Configuration(BaseModel):
 
     # Translation-specific models
     translation_model: str = Field(
-        default="gemini-1.5-flash",
+        default="gemini-2.0-flash",
         description="The name of the language model to use for translation.",
     )
 
     memory_search_model: str = Field(
-        default="gemini-1.5-flash",
+        default="gemini-2.0-flash",
         description="The name of the language model to use for memory search queries.",
     )
 
     memory_update_model: str = Field(
-        default="gemini-1.5-flash",
+        default="gemini-2.0-flash",
         description="The name of the language model to use for memory update decisions.",
     )
 
     context_summary_model: str = Field(
-        default="gemini-1.5-flash",
+        default="gemini-2.0-flash",
         description="The name of the language model to use for context summarization.",
     )
 
@@ -49,7 +49,7 @@ class Configuration(BaseModel):
     )
 
     reflection_model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-2.0-flash",
         description="The name of the language model to use for the agent's reflection.",
     )
 

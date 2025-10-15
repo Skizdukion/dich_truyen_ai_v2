@@ -15,6 +15,7 @@ from agent.configuration import Configuration
 from agent.state import OverallState
 from agent.utils import ChunkingConfig, chunk_vietnamese_text
 from weaviate_client.client import WeaviateWrapperClient
+import time
 
 
 def clear_all_data(wrapper: WeaviateWrapperClient):
@@ -288,7 +289,10 @@ def main():
 
     # Run the whole demo directory using numerically sorted chapters and chunks
     demo_dir = "raw_text/demo"
+    start_time = time.perf_counter()
     run_demo_directory(demo_dir, graph)
+    total_seconds = time.perf_counter() - start_time
+    print(f"Total runtime: {total_seconds:.2f}s")
 
 
 if __name__ == "__main__":
